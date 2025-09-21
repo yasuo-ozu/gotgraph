@@ -1,0 +1,30 @@
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/nested_scope_tag_misuse.rs:17:13
+   |
+ 7 |         let outer_node = outer_ctx.add_node(1);
+   |             ---------- `outer_node` declared here, outside of the closure body
+...
+12 |         inner_graph.scope_mut(|mut inner_ctx| {
+   |                                ------------- `inner_ctx` is a reference that is only valid in the closure body
+...
+17 |             inner_ctx.add_edge("bad", outer_node, inner_node);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `inner_ctx` escapes the closure body here
+   |
+   = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+   = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/nested_scope_tag_misuse.rs:17:13
+   |
+ 6 |     outer_graph.scope_mut(|mut outer_ctx| {
+   |                            -------------
+   |                            |
+   |                            `outer_ctx` is a reference that is only valid in the closure body
+   |                            has type `gotgraph::graph::Context<'1, &mut gotgraph::vec_graph::VecGraph<i32, &str>>`
+...
+17 |             inner_ctx.add_edge("bad", outer_node, inner_node);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `outer_ctx` escapes the closure body here
+   |             argument requires that `'1` must outlive `'static`

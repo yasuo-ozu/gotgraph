@@ -2,6 +2,18 @@
 name = "gotgraph"
 version = "0.1.0"
 edition = "2021"
+# needed for impl Trait in trait items
 rust-version = "1.75"
+authors = ["yasuo-ozu <yasuo@ozu.email>"]
+description = "A type-safe, scope-aware graph library that leverages Rust's type system to prevent common graph-related bugs at compile time"
+documentation = "https://docs.rs/gotgraph"
+repository = "https://github.com/yasuo-ozu/gotgraph"
+license = "MIT"
+keywords = ["graph", "algorithm", "data-structure", "type-safe", "scope"]
+categories = ["data-structures", "algorithms"]
+readme = "README.md"
 
 [dependencies]
+
+[dev-dependencies]
+trybuild = "1.0"

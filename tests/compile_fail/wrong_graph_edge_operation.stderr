@@ -1,0 +1,43 @@
+error: lifetime may not live long enough
+ --> tests/compile_fail/wrong_graph_edge_operation.rs:9:9
+  |
+8 |     let node1 = graph1.scope_mut(|mut ctx| {
+  |                                   -------- return type of closure is NodeTag<'2, NodeIx>
+  |                                   |
+  |                                   has type `gotgraph::graph::Context<'1, &mut gotgraph::vec_graph::VecGraph<i32, &str>>`
+9 |         ctx.add_node(1)
+  |         ^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+  |
+  = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+  = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+  = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error: lifetime may not live long enough
+  --> tests/compile_fail/wrong_graph_edge_operation.rs:13:9
+   |
+12 |     let node2 = graph2.scope_mut(|mut ctx| {
+   |                                   -------- return type of closure is NodeTag<'2, NodeIx>
+   |                                   |
+   |                                   has type `gotgraph::graph::Context<'1, &mut gotgraph::vec_graph::VecGraph<i32, &str>>`
+13 |         ctx.add_node(2)
+   |         ^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+   |
+   = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+   = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/wrong_graph_edge_operation.rs:19:9
+   |
+ 8 |     let node1 = graph1.scope_mut(|mut ctx| {
+   |         ----- `node1` declared here, outside of the closure body
+...
+17 |     graph1.scope_mut(|mut ctx| {
+   |                       ------- `ctx` is a reference that is only valid in the closure body
+18 |         // ERROR: node2 belongs to different graph/scope
+19 |         ctx.add_edge("invalid", node1, node2);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ctx` escapes the closure body here
+   |
+   = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+   = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

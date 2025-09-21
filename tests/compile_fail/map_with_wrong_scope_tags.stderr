@@ -1,0 +1,24 @@
+error: lifetime may not live long enough
+  --> tests/compile_fail/map_with_wrong_scope_tags.rs:12:9
+   |
+11 |     let saved_node_tag = graph.scope_mut(|mut ctx| {
+   |                                           -------- return type of closure is NodeTag<'2, NodeIx>
+   |                                           |
+   |                                           has type `gotgraph::graph::Context<'1, &mut gotgraph::vec_graph::VecGraph<i32, &str>>`
+12 |         ctx.add_node(3)
+   |         ^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+   |
+   = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+   = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/map_with_wrong_scope_tags.rs:17:24
+   |
+11 |     let saved_node_tag = graph.scope_mut(|mut ctx| {
+   |         -------------- `saved_node_tag` declared here, outside of the closure body
+...
+16 |     graph.scope(|ctx| {
+   |                  --- `ctx` is a reference that is only valid in the closure body
+17 |         let node_map = ctx.init_node_map(|_, &data| data);
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ctx` escapes the closure body here

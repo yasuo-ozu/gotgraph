@@ -1,348 +1,1022 @@
-pub mod basic;
+pub mod context;
+pub mod remove;
+pub mod update;
 
-use core::marker::PhantomData;
+use crate::Mapping;
+pub use context::{Context, EdgeTag, NodeTag};
+pub use remove::{GraphRemove, GraphRemoveEdge};
+pub use update::GraphUpdate;
 
-use basic::GraphBasic;
+/// The core trait defining the interface for all graph types.
+///
+/// This trait provides a comprehensive set of methods for working with graphs,
+/// including node and edge access, traversal, and introspection. All graph
+/// implementations must provide this interface.
+///
+/// # Type Parameters
+///
+/// - `Node`: The type of data stored in nodes
+/// - `Edge`: The type of data stored in edges  
+/// - `NodeIx`: The type used for node indices (must be copyable, debuggable, comparable, and hashable)
+/// - `EdgeIx`: The type used for edge indices (must be copyable, debuggable, comparable, and hashable)
+///
+/// # Safety and Scope
+///
+/// Many methods in this trait have both checked and unchecked variants. The unchecked
+/// variants are marked `unsafe` and require the caller to ensure that indices are valid.
+/// Always prefer the checked variants unless performance is critical and you can guarantee
+/// the safety requirements.
+///
+/// # Examples
+///
+/// ```rust
+/// use gotgraph::prelude::*;
+///
+/// let mut graph: VecGraph<&str, i32> = VecGraph::default();
+///
+/// // Add some data and query within same scope
+/// graph.scope_mut(|mut ctx| {
+///     let n1 = ctx.add_node("Alice");
+///     let n2 = ctx.add_node("Bob");
+///     let e = ctx.add_edge(42, n1, n2);
+///     
+///     // Query the graph within the scope
+///     println!("Added {} nodes", ctx.len_nodes());
+///     println!("Added {} edges", ctx.len_edges());
+/// });
+/// ```
+pub trait Graph {
+    /// The type of data stored in each node.
+    type Node;
+    /// The type of data stored in each edge.
+    type Edge;
+    /// The type used for node indices. Must support copying, debugging, comparison, and hashing.
+    type NodeIx: Copy + core::fmt::Debug + Eq + Ord + std::hash::Hash;
+    /// The type used for edge indices. Must support copying, debugging, comparison, and hashing.
+    type EdgeIx: Copy + core::fmt::Debug + Eq + Ord + std::hash::Hash;
 
-pub trait Graph: GraphBasic {
-    // scope
-    fn scope<'graph, R, F: for<'scope> FnOnce(Context<'scope, 'graph, Self>) -> R>(
-        &'graph self,
-        f: F,
-    ) -> R {
-        f(Context {
-            graph: self,
-            _scope: PhantomData,
-        })
+    /// Checks whether a node index exists in the graph.
+    ///
+    /// # Parameters
+    ///
+    /// - `ix`: The node index to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the node exists, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use gotgraph::prelude::*;
+    ///
+    /// let mut graph: VecGraph<i32, ()> = VecGraph::default();
+    /// graph.scope_mut(|mut ctx| {
+    ///     let node = ctx.add_node(42);
+    ///     assert!(ctx.exists_node_index(node));
+    /// });
+    /// ```
+    fn exists_node_index(&self, ix: Self::NodeIx) -> bool;
+
+    /// Checks whether an edge index exists in the graph.
+    ///
+    /// # Parameters
+    ///
+    /// - `ix`: The edge index to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the edge exists, `false` otherwise.
+    fn exists_edge_index(&self, ix: Self::EdgeIx) -> bool;
+
+    /// Returns an iterator over all node indices in the graph.
+    ///
+    /// The order of iteration is implementation-defined.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use gotgraph::prelude::*;
+    ///
+    /// let mut graph: VecGraph<i32, ()> = VecGraph::default();
+    /// graph.scope_mut(|mut ctx| {
+    ///     ctx.add_node(1);
+    ///     ctx.add_node(2);
+    /// });
+    ///
+    /// let indices: Vec<_> = graph.node_indices().collect();
+    /// assert_eq!(indices.len(), 2);
+    /// ```
+    fn node_indices(&self) -> impl Iterator<Item = Self::NodeIx>;
+
+    /// Returns an iterator over all edge indices in the graph.
+    ///
+    /// The order of iteration is implementation-defined.
+    fn edge_indices(&self) -> impl Iterator<Item = Self::EdgeIx>;
+    /// Returns an iterator over the indices of edges originating from the specified node.
+    ///
+    /// This method includes bounds checking and will panic if the node index is invalid.
+    ///
+    /// # Parameters
+    ///
+    /// - `tag`: The node index to get outgoing edges for
+    ///
+    /// # Returns
+    ///
+    /// An iterator over the edge indices of outgoing edges.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the node index does not exist in the graph.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use gotgraph::prelude::*;
+    ///
+    /// let mut graph: VecGraph<i32, &str> = VecGraph::default();
+    /// graph.scope_mut(|mut ctx| {
+    ///     let n1 = ctx.add_node(1);
+    ///     let n2 = ctx.add_node(2);
+    ///     ctx.add_edge("edge", n1, n2);
+    ///     
+    ///     let outgoing: Vec<_> = ctx.outgoing_edge_indices(n1).collect();
+    ///     assert_eq!(outgoing.len(), 1);
+    /// });
+    /// ```
+    fn outgoing_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.outgoing_edge_indices_unchecked(tag) }
     }
 
-    fn scope_mut<'graph, R, F: for<'scope> FnOnce(ContextMut<'scope, 'graph, Self>) -> R>(
-        &'graph mut self,
-        f: F,
-    ) -> R {
-        f(ContextMut {
-            graph: self,
-            _scope: PhantomData,
-        })
+    /// Returns an iterator over the indices of edges originating from the specified node without bounds checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the node index is valid (i.e., `exists_node_index(tag)` returns `true`).
+    /// Using an invalid node index results in undefined behavior.
+    ///
+    /// # Parameters
+    ///
+    /// - `tag`: The node index to get outgoing edges for
+    ///
+    /// # Returns
+    ///
+    /// An iterator over the edge indices of outgoing edges.
+    unsafe fn outgoing_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        self.outgoing_edge_pairs_unchecked(tag).map(|(ix, _)| ix)
     }
 
-    // iterators
-    fn nodes(&self) -> impl Iterator<Item = &Self::Node> + use<'_, Self> {
-        self.node_indices()
-            .map(|ix| unsafe { self.get_node_unchecked(ix) })
+    fn outgoing_edges(&self, tag: Self::NodeIx) -> impl Iterator<Item = &Self::Edge> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.outgoing_edges_unchecked(tag) }
+    }
+
+    unsafe fn outgoing_edges_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &Self::Edge> {
+        self.outgoing_edge_pairs_unchecked(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn outgoing_edge_pairs(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.outgoing_edge_pairs_unchecked(tag) }
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)>;
+
+    fn incoming_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.incoming_edge_indices_unchecked(tag) }
+    }
+
+    unsafe fn incoming_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        self.incoming_edge_pairs_unchecked(tag).map(|(ix, _)| ix)
+    }
+
+    fn incoming_edges(&self, tag: Self::NodeIx) -> impl Iterator<Item = &Self::Edge> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.incoming_edges_unchecked(tag) }
+    }
+
+    unsafe fn incoming_edges_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &Self::Edge> {
+        self.incoming_edge_pairs_unchecked(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn incoming_edge_pairs(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.incoming_edge_pairs_unchecked(tag) }
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)>;
+
+    fn connecting_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        self.connecting_edge_pairs(tag).map(|(ix, _)| ix)
+    }
+
+    unsafe fn connecting_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        self.connecting_edge_pairs_unchecked(tag).map(|(ix, _)| ix)
+    }
+
+    fn connecting_edges(&self, tag: Self::NodeIx) -> impl Iterator<Item = &Self::Edge> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.connecting_edges_unchecked(tag) }
+    }
+
+    unsafe fn connecting_edges_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &Self::Edge> {
+        self.connecting_edge_pairs_unchecked(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn connecting_edge_pairs(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.connecting_edge_pairs_unchecked(tag) }
+    }
+
+    unsafe fn connecting_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        self.outgoing_edge_pairs_unchecked(tag)
+            .chain(self.incoming_edge_pairs_unchecked(tag))
+    }
+
+    fn node(&self, tag: Self::NodeIx) -> &Self::Node {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.node_unchecked(tag) }
+    }
+
+    unsafe fn node_unchecked(&self, tag: Self::NodeIx) -> &Self::Node;
+
+    fn edge(&self, tag: Self::EdgeIx) -> &Self::Edge {
+        assert!(
+            self.exists_edge_index(tag),
+            "Edge index {:?} does not exist",
+            tag
+        );
+        unsafe { self.edge_unchecked(tag) }
+    }
+
+    unsafe fn edge_unchecked(&self, tag: Self::EdgeIx) -> &Self::Edge;
+
+    fn endpoints(&self, tag: Self::EdgeIx) -> [Self::NodeIx; 2] {
+        assert!(
+            self.exists_edge_index(tag),
+            "Edge index {:?} does not exist",
+            tag
+        );
+        unsafe { self.endpoints_unchecked(tag) }
+    }
+
+    unsafe fn endpoints_unchecked(&self, ix: Self::EdgeIx) -> [Self::NodeIx; 2];
+
+    fn nodes(&self) -> impl Iterator<Item = &Self::Node> {
+        self.node_pairs().map(|(_, node)| node)
     }
 
     fn edges(&self) -> impl Iterator<Item = &Self::Edge> + use<'_, Self> {
+        self.edge_pairs().map(|(_, edge)| edge)
+    }
+
+    fn node_pairs(&self) -> impl Iterator<Item = (Self::NodeIx, &Self::Node)> {
+        self.node_indices()
+            .map(move |node_ix| (node_ix, unsafe { self.node_unchecked(node_ix) }))
+    }
+
+    fn edge_pairs(&self) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
         self.edge_indices()
-            .map(|ix| unsafe { self.get_edge_unchecked(ix) })
+            .map(move |edge_ix| (edge_ix, unsafe { self.edge_unchecked(edge_ix) }))
     }
 
-    fn nodes_mut(&mut self) -> impl Iterator<Item = &mut Self::Node> + use<'_, Self> {
-        struct NodesMutIter<'a, G: GraphBasic> {
-            graph: &'a mut G,
-            indices: std::vec::IntoIter<G::NodeIx>,
-        }
-
-        impl<'a, G: GraphBasic> Iterator for NodesMutIter<'a, G> {
-            type Item = &'a mut G::Node;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                self.indices.next().map(|ix| unsafe {
-                    let ptr = self.graph.get_node_unchecked_mut(ix) as *mut G::Node;
-                    &mut *ptr
-                })
-            }
-        }
-
-        let indices: Vec<_> = self.node_indices().collect();
-        NodesMutIter {
-            graph: self,
-            indices: indices.into_iter(),
-        }
-    }
-
-    fn edges_mut(&mut self) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self> {
-        struct EdgesMutIter<'a, G: GraphBasic> {
-            graph: &'a mut G,
-            indices: std::vec::IntoIter<G::EdgeIx>,
-        }
-
-        impl<'a, G: GraphBasic> Iterator for EdgesMutIter<'a, G> {
-            type Item = &'a mut G::Edge;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                self.indices.next().map(|ix| unsafe {
-                    let ptr = self.graph.get_edge_unchecked_mut(ix) as *mut G::Edge;
-                    &mut *ptr
-                })
-            }
-        }
-
-        let indices: Vec<_> = self.edge_indices().collect();
-        EdgesMutIter {
-            graph: self,
-            indices: indices.into_iter(),
-        }
-    }
-
-    fn drain<CN, CE>(&mut self) -> (CN, CE)
-    where
-        CN: Default + Extend<Self::Node>,
-        CE: Default + Extend<Self::Edge>,
-    {
-        let nodes: Vec<_> = self.node_indices().collect();
-        let edges: Vec<_> = self.edge_indices().collect();
-        unsafe { self.remove_nodes_edges_unchecked(nodes, edges) }
-    }
-
-    // info
     fn len_nodes(&self) -> usize {
-        self.nodes().count()
+        self.node_indices().count()
     }
     fn len_edges(&self) -> usize {
-        self.edges().count()
+        self.edge_indices().count()
     }
     fn is_empty(&self) -> bool {
         self.len_nodes() == 0 && self.len_edges() == 0
     }
 
-    // append
-    fn append(&mut self, mut other: impl Graph<Node = Self::Node, Edge = Self::Edge>) {
-        use std::collections::HashMap;
-
-        // Collect all indices and their data before draining
-        let edge_data: Vec<_> = other
-            .edge_indices()
-            .map(|edge_ix| {
-                let endpoints = unsafe { other.get_endpoints_unchecked(edge_ix) };
-                (edge_ix, endpoints)
-            })
-            .collect();
-
-        let node_indices: Vec<_> = other.node_indices().collect();
-
-        // Drain all nodes and edges at once to avoid index invalidation
-        let (nodes, edges): (Vec<Self::Node>, Vec<Self::Edge>) = other.drain();
-
-        // Create mapping from old node indices to new node indices
-        let mut node_mapping = HashMap::new();
-
-        // Add all nodes and build mapping
-        for (old_node_ix, node) in node_indices.into_iter().zip(nodes) {
-            let new_node_ix = self.add_node(node);
-            node_mapping.insert(old_node_ix, new_node_ix);
-        }
-
-        // Add edges with mapped node indices
-        for ((_, endpoints), edge) in edge_data.into_iter().zip(edges) {
-            let new_from = node_mapping[&endpoints[0]];
-            let new_to = node_mapping[&endpoints[1]];
-            unsafe { self.add_edge_unchecked(edge, new_from, new_to) };
-        }
-    }
-
-    fn insert_node(&mut self, item: Self::Node) -> Self::NodeIx {
-        self.add_node(item)
-    }
-
-    // remove
-    fn remove_nodes_with<F: FnMut(&Self::Node) -> bool>(
-        &mut self,
-        mut f: F,
-    ) -> impl Iterator<Item = Self::Node> + use<'_, Self, F> {
-        let to_remove: Vec<_> = self
-            .node_indices()
-            .filter(|&ix| unsafe { f(self.get_node_unchecked(ix)) })
-            .collect();
-
-        to_remove
-            .into_iter()
-            .filter_map(move |ix| self.remove_node(ix))
-    }
-
-    fn remove_edges_with<F: FnMut(&Self::Edge) -> bool>(
-        &mut self,
-        mut f: F,
-    ) -> impl Iterator<Item = Self::Edge> + use<'_, Self, F> {
-        let to_remove: Vec<_> = self
-            .edge_indices()
-            .filter(|&ix| unsafe { f(self.get_edge_unchecked(ix)) })
-            .collect();
-
-        to_remove
-            .into_iter()
-            .filter_map(move |ix| self.remove_edge(ix))
-    }
-
-    fn clear_edges(&mut self) {
-        let edges: Vec<_> = self.edge_indices().collect();
-        for edge_ix in edges {
-            self.remove_edge(edge_ix);
-        }
-    }
-
-    fn clear(&mut self) {
-        let _: (Vec<Self::Node>, Vec<Self::Edge>) = self.drain();
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NodeTag<'scope, I>(crate::Invariant<'scope>, I);
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct EdgeTag<'scope, I>(crate::Invariant<'scope>, I);
-
-#[derive(Debug)]
-pub struct Context<'scope, 'graph, G: GraphBasic> {
-    graph: &'graph G,
-    _scope: crate::Invariant<'scope>,
-}
-
-impl<'scope, 'graph, G: GraphBasic> Context<'scope, 'graph, G> {
-    fn get_graph(&self) -> &'graph G {
-        self.graph
-    }
-
-    pub fn nodes(&self) -> impl Iterator<Item = NodeTag<'scope, G::NodeIx>> + use<'_, 'scope, G> {
-        self.get_graph()
-            .node_indices()
-            .map(|ix| NodeTag(PhantomData, ix.clone()))
-    }
-
-    pub fn edges(&self) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        self.get_graph()
-            .edge_indices()
-            .map(|ix| EdgeTag(PhantomData, ix.clone()))
-    }
-
-    pub fn get_node(&self, NodeTag(_, ix): NodeTag<'scope, G::NodeIx>) -> &'graph G::Node {
-        unsafe { self.get_graph().get_node_unchecked(ix) }
-    }
-
-    pub fn get_edge(&self, EdgeTag(_, ix): EdgeTag<'scope, G::EdgeIx>) -> &'graph G::Edge {
-        unsafe { self.get_graph().get_edge_unchecked(ix) }
-    }
-
-    pub fn get_outgoing_edges(
-        &self,
-        NodeTag(_, ix): NodeTag<'scope, G::NodeIx>,
-    ) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        unsafe { self.get_graph().get_outgoing_edges_unchecked(ix) }
-            .map(|ix| EdgeTag(PhantomData, ix))
-    }
-
-    pub fn get_incoming_edges(
-        &self,
-        NodeTag(_, ix): NodeTag<'scope, G::NodeIx>,
-    ) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        unsafe { self.get_graph().get_incoming_edges_unchecked(ix) }
-            .map(|ix| EdgeTag(PhantomData, ix))
-    }
-
-    pub fn get_endpoints(
-        &self,
-        EdgeTag(_, ix): EdgeTag<'scope, G::EdgeIx>,
-    ) -> [NodeTag<'scope, G::NodeIx>; 2] {
-        unsafe { self.get_graph().get_endpoints_unchecked(ix) }.map(|ix| NodeTag(PhantomData, ix))
-    }
-}
-
-#[derive(Debug)]
-pub struct ContextMut<'scope, 'graph, G: GraphBasic> {
-    graph: &'graph mut G,
-    _scope: crate::Invariant<'scope>,
-}
-
-impl<'scope, 'graph, G: GraphBasic> ContextMut<'scope, 'graph, G> {
-    fn get_graph(&self) -> &G {
-        &self.graph
-    }
-
-    fn get_graph_mut(&mut self) -> &mut G {
-        &mut self.graph
-    }
-
-    pub fn nodes(&self) -> impl Iterator<Item = NodeTag<'scope, G::NodeIx>> + use<'_, 'scope, G> {
-        self.get_graph()
-            .node_indices()
-            .map(|ix| NodeTag(PhantomData, ix))
-    }
-
-    pub fn edges(&self) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        self.get_graph()
-            .edge_indices()
-            .map(|ix| EdgeTag(PhantomData, ix))
-    }
-
-    pub fn get_node(&self, NodeTag(_, ix): NodeTag<'scope, G::NodeIx>) -> &G::Node {
-        unsafe { self.get_graph().get_node_unchecked(ix) }
-    }
-
-    pub fn get_edge(&self, EdgeTag(_, ix): EdgeTag<'scope, G::EdgeIx>) -> &G::Edge {
-        unsafe { self.get_graph().get_edge_unchecked(ix) }
-    }
-
-    pub fn get_outgoing_edges(
-        &self,
-        NodeTag(_, ix): NodeTag<'scope, G::NodeIx>,
-    ) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        unsafe { self.get_graph().get_outgoing_edges_unchecked(ix) }
-            .map(|ix| EdgeTag(PhantomData, ix))
-    }
-
-    pub fn get_incoming_edges(
-        &self,
-        NodeTag(_, ix): NodeTag<'scope, G::NodeIx>,
-    ) -> impl Iterator<Item = EdgeTag<'scope, G::EdgeIx>> + use<'_, 'scope, G> {
-        unsafe { self.get_graph().get_incoming_edges_unchecked(ix) }
-            .map(|ix| EdgeTag(PhantomData, ix))
-    }
-
-    pub fn get_endpoints(
-        &self,
-        EdgeTag(_, ix): EdgeTag<'scope, G::EdgeIx>,
-    ) -> [NodeTag<'scope, G::NodeIx>; 2] {
-        unsafe { self.get_graph().get_endpoints_unchecked(ix) }.map(|ix| NodeTag(PhantomData, ix))
-    }
-
-    pub fn get_node_mut(&mut self, NodeTag(_, ix): NodeTag<'scope, G::NodeIx>) -> &mut G::Node {
-        unsafe { self.get_graph_mut().get_node_unchecked_mut(ix) }
-    }
-
-    pub fn get_edge_mut(&mut self, EdgeTag(_, ix): EdgeTag<'scope, G::EdgeIx>) -> &mut G::Edge {
-        unsafe { self.get_graph_mut().get_edge_unchecked_mut(ix) }
-    }
-
-    pub fn add_node(&mut self, node: G::Node) -> NodeTag<'scope, G::NodeIx> {
-        NodeTag(PhantomData, self.get_graph_mut().add_node(node))
-    }
-
-    pub fn add_edge(
-        &mut self,
-        edge: G::Edge,
-        NodeTag(_, from_ix): NodeTag<'scope, G::NodeIx>,
-        NodeTag(_, to_ix): NodeTag<'scope, G::NodeIx>,
-    ) -> EdgeTag<'scope, G::EdgeIx> {
-        EdgeTag(PhantomData, unsafe {
-            self.get_graph_mut()
-                .add_edge_unchecked(edge, from_ix, to_ix)
+    fn scope<
+        'graph,
+        R,
+        F: for<'scope> FnOnce(&crate::graph::context::Context<'scope, &'graph Self>) -> R,
+    >(
+        &'graph self,
+        f: F,
+    ) -> R {
+        use core::marker::PhantomData;
+        f(&crate::graph::context::Context {
+            graph: self,
+            _scope: PhantomData,
         })
     }
 
-    pub fn remove_nodes_edges<CN, CE>(
-        self,
-        nodes: impl IntoIterator<Item = NodeTag<'scope, G::NodeIx>>,
-        edges: impl IntoIterator<Item = EdgeTag<'scope, G::EdgeIx>>,
-    ) -> (CN, CE)
+    fn node_mut(&mut self, tag: Self::NodeIx) -> &mut Self::Node {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.node_unchecked_mut(tag) }
+    }
+
+    unsafe fn node_unchecked_mut(&mut self, tag: Self::NodeIx) -> &mut Self::Node;
+
+    fn edge_mut(&mut self, tag: Self::EdgeIx) -> &mut Self::Edge {
+        assert!(
+            self.exists_edge_index(tag),
+            "Edge index {:?} does not exist",
+            tag
+        );
+        unsafe { self.edge_unchecked_mut(tag) }
+    }
+
+    unsafe fn edge_unchecked_mut(&mut self, tag: Self::EdgeIx) -> &mut Self::Edge;
+
+    fn nodes_mut(&mut self) -> impl Iterator<Item = &mut Self::Node> + use<'_, Self>
     where
-        CN: Default + Extend<G::Node>,
-        CE: Default + Extend<G::Edge>,
+        Self: Sized,
     {
-        let node_indices = nodes.into_iter().map(|NodeTag(_, ix)| ix);
-        let edge_indices = edges.into_iter().map(|EdgeTag(_, ix)| ix);
-        unsafe {
-            self.graph
-                .remove_nodes_edges_unchecked(node_indices, edge_indices)
+        self.node_pairs_mut().map(|(_, node)| node)
+    }
+
+    fn edges_mut(&mut self) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        self.edge_pairs_mut().map(|(_, edge)| edge)
+    }
+
+    fn node_pairs_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (Self::NodeIx, &mut Self::Node)> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        struct NodePairsMutIter<'a, G: Graph> {
+            graph: &'a mut G,
+            indices: std::vec::IntoIter<G::NodeIx>,
         }
+
+        impl<'a, G: Graph> Iterator for NodePairsMutIter<'a, G> {
+            type Item = (G::NodeIx, &'a mut G::Node);
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.indices.next().map(|ix| unsafe {
+                    let ptr = self.graph.node_unchecked_mut(ix) as *mut G::Node;
+                    (ix, &mut *ptr)
+                })
+            }
+        }
+
+        let indices: Vec<_> = self.node_indices().collect();
+        NodePairsMutIter {
+            graph: self,
+            indices: indices.into_iter(),
+        }
+    }
+
+    fn edge_pairs_mut(
+        &mut self,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        struct EdgePairsMutIter<'a, G: Graph> {
+            graph: &'a mut G,
+            indices: std::vec::IntoIter<G::EdgeIx>,
+        }
+
+        impl<'a, G: Graph> Iterator for EdgePairsMutIter<'a, G> {
+            type Item = (G::EdgeIx, &'a mut G::Edge);
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.indices.next().map(|ix| unsafe {
+                    let ptr = self.graph.edge_unchecked_mut(ix) as *mut G::Edge;
+                    (ix, &mut *ptr)
+                })
+            }
+        }
+
+        let indices: Vec<_> = self.edge_indices().collect();
+        EdgePairsMutIter {
+            graph: self,
+            indices: indices.into_iter(),
+        }
+    }
+
+    fn outgoing_edges_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.outgoing_edges_unchecked_mut(tag) }
+    }
+
+    unsafe fn outgoing_edges_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        self.outgoing_edge_pairs_unchecked_mut(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn outgoing_edge_pairs_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.outgoing_edge_pairs_unchecked_mut(tag) }
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized;
+
+    fn incoming_edges_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.incoming_edges_unchecked_mut(tag) }
+    }
+
+    unsafe fn incoming_edges_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        self.incoming_edge_pairs_unchecked_mut(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn incoming_edge_pairs_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.incoming_edge_pairs_unchecked_mut(tag) }
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized;
+
+    fn connecting_edges_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.connecting_edges_unchecked_mut(tag) }
+    }
+
+    unsafe fn connecting_edges_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = &mut Self::Edge> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        self.connecting_edge_pairs_unchecked_mut(tag)
+            .map(|(_, edge)| edge)
+    }
+
+    fn connecting_edge_pairs_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)> + use<'_, Self>
+    where
+        Self: Sized,
+    {
+        assert!(
+            self.exists_node_index(tag),
+            "Node index {:?} does not exist",
+            tag
+        );
+        unsafe { self.connecting_edge_pairs_unchecked_mut(tag) }
+    }
+
+    unsafe fn connecting_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized;
+
+    fn scope_mut<
+        'graph,
+        R,
+        F: for<'scope> FnOnce(crate::graph::context::Context<'scope, &'graph mut Self>) -> R,
+    >(
+        &'graph mut self,
+        f: F,
+    ) -> R
+    where
+        Self: Sized + crate::graph::GraphUpdate,
+    {
+        use core::marker::PhantomData;
+        f(crate::graph::context::Context {
+            graph: self,
+            _scope: PhantomData,
+        })
+    }
+
+    fn init_edge_map<V>(
+        &self,
+        mut f: impl FnMut(Self::EdgeIx, &Self::Edge) -> V,
+    ) -> impl Mapping<Self::EdgeIx, V> {
+        #[derive(Debug)]
+        struct DefaultEdgeMap<K, V>(std::collections::HashMap<K, V>);
+
+        impl<K: Eq + std::hash::Hash, V> std::ops::Index<K> for DefaultEdgeMap<K, V> {
+            type Output = V;
+
+            fn index(&self, key: K) -> &Self::Output {
+                &self.0[&key]
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> std::ops::IndexMut<K> for DefaultEdgeMap<K, V> {
+            fn index_mut(&mut self, key: K) -> &mut Self::Output {
+                self.0.get_mut(&key).expect("Key not found in mapping")
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> IntoIterator for DefaultEdgeMap<K, V> {
+            type Item = V;
+            type IntoIter = std::collections::hash_map::IntoValues<K, V>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.into_values()
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> Mapping<K, V> for DefaultEdgeMap<K, V> {
+            fn map<VV>(self, mut f: impl FnMut(V) -> VV) -> impl Mapping<K, VV> {
+                DefaultEdgeMap(
+                    self.0
+                        .into_iter()
+                        .map(|(k, v)| (k, f(v)))
+                        .collect::<std::collections::HashMap<K, VV>>(),
+                )
+            }
+
+            fn iter<'a>(&'a self) -> impl Iterator<Item = &'a V>
+            where
+                V: 'a,
+            {
+                self.0.values()
+            }
+
+            fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut V>
+            where
+                V: 'a,
+            {
+                self.0.values_mut()
+            }
+
+            unsafe fn get_unchecked(&self, key: K) -> &V {
+                self.0.get(&key).unwrap_unchecked()
+            }
+
+            unsafe fn get_unchecked_mut(&mut self, key: K) -> &mut V {
+                self.0.get_mut(&key).unwrap_unchecked()
+            }
+        }
+
+        let mut map = std::collections::HashMap::new();
+        for (edge_ix, edge) in self.edge_pairs() {
+            map.insert(edge_ix, f(edge_ix, edge));
+        }
+        DefaultEdgeMap(map)
+    }
+
+    fn init_node_map<V>(
+        &self,
+        mut f: impl FnMut(Self::NodeIx, &Self::Node) -> V,
+    ) -> impl Mapping<Self::NodeIx, V> {
+        #[derive(Debug)]
+        struct DefaultNodeMap<K, V>(std::collections::HashMap<K, V>);
+
+        impl<K: Eq + std::hash::Hash, V> std::ops::Index<K> for DefaultNodeMap<K, V> {
+            type Output = V;
+
+            fn index(&self, key: K) -> &Self::Output {
+                &self.0[&key]
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> std::ops::IndexMut<K> for DefaultNodeMap<K, V> {
+            fn index_mut(&mut self, key: K) -> &mut Self::Output {
+                self.0.get_mut(&key).expect("Key not found in mapping")
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> IntoIterator for DefaultNodeMap<K, V> {
+            type Item = V;
+            type IntoIter = std::collections::hash_map::IntoValues<K, V>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.into_values()
+            }
+        }
+
+        impl<K: Eq + std::hash::Hash, V> Mapping<K, V> for DefaultNodeMap<K, V> {
+            fn map<VV>(self, mut f: impl FnMut(V) -> VV) -> impl Mapping<K, VV> {
+                DefaultNodeMap(
+                    self.0
+                        .into_iter()
+                        .map(|(k, v)| (k, f(v)))
+                        .collect::<std::collections::HashMap<K, VV>>(),
+                )
+            }
+
+            fn iter<'a>(&'a self) -> impl Iterator<Item = &'a V>
+            where
+                V: 'a,
+            {
+                self.0.values()
+            }
+
+            fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut V>
+            where
+                V: 'a,
+            {
+                self.0.values_mut()
+            }
+
+            unsafe fn get_unchecked(&self, key: K) -> &V {
+                self.0.get(&key).unwrap_unchecked()
+            }
+
+            unsafe fn get_unchecked_mut(&mut self, key: K) -> &mut V {
+                self.0.get_mut(&key).unwrap_unchecked()
+            }
+        }
+
+        let mut map = std::collections::HashMap::new();
+        for (node_ix, node) in self.node_pairs() {
+            map.insert(node_ix, f(node_ix, node));
+        }
+        DefaultNodeMap(map)
+    }
+}
+
+impl<T: Graph> Graph for &T {
+    type Node = T::Node;
+    type Edge = T::Edge;
+    type NodeIx = T::NodeIx;
+    type EdgeIx = T::EdgeIx;
+
+    fn exists_node_index(&self, ix: Self::NodeIx) -> bool {
+        (*self).exists_node_index(ix)
+    }
+
+    fn exists_edge_index(&self, ix: Self::EdgeIx) -> bool {
+        (*self).exists_edge_index(ix)
+    }
+
+    fn node_indices(&self) -> impl Iterator<Item = Self::NodeIx> {
+        (*self).node_indices()
+    }
+
+    fn edge_indices(&self) -> impl Iterator<Item = Self::EdgeIx> {
+        (*self).edge_indices()
+    }
+
+    fn outgoing_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        (*self).outgoing_edge_indices(tag)
+    }
+
+    unsafe fn outgoing_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        (*self).outgoing_edge_indices_unchecked(tag)
+    }
+
+    fn incoming_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        (*self).incoming_edge_indices(tag)
+    }
+
+    unsafe fn incoming_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        (*self).incoming_edge_indices_unchecked(tag)
+    }
+
+    fn node(&self, tag: Self::NodeIx) -> &Self::Node {
+        (*self).node(tag)
+    }
+
+    unsafe fn node_unchecked(&self, tag: Self::NodeIx) -> &Self::Node {
+        (*self).node_unchecked(tag)
+    }
+
+    fn edge(&self, tag: Self::EdgeIx) -> &Self::Edge {
+        (*self).edge(tag)
+    }
+
+    unsafe fn edge_unchecked(&self, tag: Self::EdgeIx) -> &Self::Edge {
+        (*self).edge_unchecked(tag)
+    }
+
+    fn endpoints(&self, tag: Self::EdgeIx) -> [Self::NodeIx; 2] {
+        (*self).endpoints(tag)
+    }
+
+    unsafe fn endpoints_unchecked(&self, ix: Self::EdgeIx) -> [Self::NodeIx; 2] {
+        (*self).endpoints_unchecked(ix)
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        (*self).outgoing_edge_pairs_unchecked(tag)
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        (*self).incoming_edge_pairs_unchecked(tag)
+    }
+
+    unsafe fn node_unchecked_mut(&mut self, _tag: Self::NodeIx) -> &mut Self::Node {
+        panic!("&T does not support mutable access")
+    }
+
+    unsafe fn edge_unchecked_mut(&mut self, _tag: Self::EdgeIx) -> &mut Self::Edge {
+        panic!("&T does not support mutable access")
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked_mut(
+        &mut self,
+        _tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        std::iter::empty()
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked_mut(
+        &mut self,
+        _tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        std::iter::empty()
+    }
+
+    unsafe fn connecting_edge_pairs_unchecked_mut(
+        &mut self,
+        _tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        std::iter::empty()
+    }
+}
+
+impl<T: Graph> Graph for &mut T {
+    type Node = T::Node;
+    type Edge = T::Edge;
+    type NodeIx = T::NodeIx;
+    type EdgeIx = T::EdgeIx;
+
+    fn exists_node_index(&self, ix: Self::NodeIx) -> bool {
+        (**self).exists_node_index(ix)
+    }
+
+    fn exists_edge_index(&self, ix: Self::EdgeIx) -> bool {
+        (**self).exists_edge_index(ix)
+    }
+
+    fn node_indices(&self) -> impl Iterator<Item = Self::NodeIx> {
+        (**self).node_indices()
+    }
+
+    fn edge_indices(&self) -> impl Iterator<Item = Self::EdgeIx> {
+        (**self).edge_indices()
+    }
+
+    fn outgoing_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        (**self).outgoing_edge_indices(tag)
+    }
+
+    unsafe fn outgoing_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        (**self).outgoing_edge_indices_unchecked(tag)
+    }
+
+    fn incoming_edge_indices(&self, tag: Self::NodeIx) -> impl Iterator<Item = Self::EdgeIx> {
+        (**self).incoming_edge_indices(tag)
+    }
+
+    unsafe fn incoming_edge_indices_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = Self::EdgeIx> {
+        (**self).incoming_edge_indices_unchecked(tag)
+    }
+
+    fn node(&self, tag: Self::NodeIx) -> &Self::Node {
+        (**self).node(tag)
+    }
+
+    unsafe fn node_unchecked(&self, tag: Self::NodeIx) -> &Self::Node {
+        (**self).node_unchecked(tag)
+    }
+
+    fn edge(&self, tag: Self::EdgeIx) -> &Self::Edge {
+        (**self).edge(tag)
+    }
+
+    unsafe fn edge_unchecked(&self, tag: Self::EdgeIx) -> &Self::Edge {
+        (**self).edge_unchecked(tag)
+    }
+
+    fn endpoints(&self, tag: Self::EdgeIx) -> [Self::NodeIx; 2] {
+        (**self).endpoints(tag)
+    }
+
+    unsafe fn endpoints_unchecked(&self, ix: Self::EdgeIx) -> [Self::NodeIx; 2] {
+        (**self).endpoints_unchecked(ix)
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        (**self).outgoing_edge_pairs_unchecked(tag)
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked(
+        &self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &Self::Edge)> {
+        (**self).incoming_edge_pairs_unchecked(tag)
+    }
+
+    unsafe fn node_unchecked_mut(&mut self, tag: Self::NodeIx) -> &mut Self::Node {
+        (**self).node_unchecked_mut(tag)
+    }
+
+    unsafe fn edge_unchecked_mut(&mut self, tag: Self::EdgeIx) -> &mut Self::Edge {
+        (**self).edge_unchecked_mut(tag)
+    }
+
+    unsafe fn outgoing_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        (**self).outgoing_edge_pairs_unchecked_mut(tag)
+    }
+
+    unsafe fn incoming_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        (**self).incoming_edge_pairs_unchecked_mut(tag)
+    }
+
+    unsafe fn connecting_edge_pairs_unchecked_mut(
+        &mut self,
+        tag: Self::NodeIx,
+    ) -> impl Iterator<Item = (Self::EdgeIx, &mut Self::Edge)>
+    where
+        Self: Sized,
+    {
+        (**self).connecting_edge_pairs_unchecked_mut(tag)
     }
 }

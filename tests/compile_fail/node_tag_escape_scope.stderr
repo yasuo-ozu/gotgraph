@@ -1,0 +1,14 @@
+error: lifetime may not live long enough
+ --> tests/compile_fail/node_tag_escape_scope.rs:9:9
+  |
+7 |     let escaped_node = graph.scope_mut(|mut ctx| {
+  |                                         -------- return type of closure is NodeTag<'2, NodeIx>
+  |                                         |
+  |                                         has type `gotgraph::graph::Context<'1, &mut gotgraph::vec_graph::VecGraph<i32, &str>>`
+8 |         let n0 = ctx.add_node(42);
+9 |         n0 // ERROR: node tag cannot escape the scope
+  |         ^^ returning this value requires that `'1` must outlive `'2`
+  |
+  = note: requirement occurs because of the type `NodeTag<'_, NodeIx>`, which makes the generic argument `'_` invariant
+  = note: the struct `NodeTag<'scope, I>` is invariant over the parameter `'scope`
+  = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
