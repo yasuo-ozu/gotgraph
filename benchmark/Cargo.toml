@@ -10,8 +10,13 @@ gotgraph = { path = ".." }
 petgraph = "0.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
+plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
 
 [[bench]]
 name = "graph_benchmark"
 path = "main.rs"
 harness = false
+
+[[bin]]
+name = "plot_results"
+path = "plot_results.rs"

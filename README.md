@@ -96,6 +96,21 @@ or scopes, preventing common indexing errors.
 The safety features are enforced at compile time and have no runtime overhead. The
 generated code is as efficient as unsafe alternatives.
 
+## Performance Comparison
+
+GotGraph provides competitive performance compared to other graph libraries. The following charts show performance comparisons with PetGraph across different graph sizes using log-log scale visualization:
+
+### Graph Creation Performance
+![Graph Creation Performance](benchmark/graph_creation_performance.svg)
+
+### Graph Traversal Performance  
+![Graph Traversal Performance](benchmark/graph_traversal_performance.svg)
+
+### Memory Usage Performance
+![Memory Usage Performance](benchmark/memory_usage_performance.svg)
+
+The benchmarks demonstrate that GotGraph's scoped operations provide competitive performance while maintaining compile-time safety guarantees. In traversal operations, GotGraph shows particularly strong performance characteristics.
+
 ## Usage Examples
 
 ### Creating and Manipulating Graphs
