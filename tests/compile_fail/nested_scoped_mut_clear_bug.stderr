@@ -1,0 +1,14 @@
+error[E0599]: the method `remove_nodes_edges` exists for struct `gotgraph::graph::Context<'_, &mut gotgraph::graph::Context<'_, &mut gotgraph::vec_graph::VecGraph<i32, &str>>>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/nested_scoped_mut_clear_bug.rs:33:23
+   |
+33 |             inner_ctx.remove_nodes_edges::<Vec<_>, Vec<_>>(all_nodes, all_edges);
+   |                       ^^^^^^^^^^^^^^^^^^
+   |
+  ::: src/graph/context.rs
+   |
+   | pub struct Context<'scope, G> {
+   | ----------------------------- doesn't satisfy `_: GraphRemove`
+   |
+   = note: the following trait bounds were not satisfied:
+           `gotgraph::graph::Context<'_, &mut gotgraph::vec_graph::VecGraph<i32, &str>>: gotgraph::graph::GraphRemove`
+           which is required by `&mut gotgraph::graph::Context<'_, &mut gotgraph::vec_graph::VecGraph<i32, &str>>: gotgraph::graph::GraphRemove`
