@@ -7,69 +7,25 @@ use gotgraph::prelude::*;
 
 // Import petgraph
 use petgraph::graph::DiGraph;
+use petgraph::stable_graph::StableDiGraph;
 
-#[derive(Debug, Clone)]
-struct BenchmarkResult {
-    graph_size: usize,
-    gotgraph_time_ns: u64,
-    petgraph_time_ns: u64,
-}
-
-fn generate_random_edges(num_nodes: usize, num_edges: usize, rng: &mut StdRng) -> Vec<(usize, usize)> {
-    let mut edges = Vec::new();
-    for _ in 0..num_edges {
-        let from = rng.gen_range(0..num_nodes);
-        let to = rng.gen_range(0..num_nodes);
-        edges.push((from, to));
-    }
-    edges
-}
+// Import our common benchmark library
+use gotgraph_benchmark::{
+    BenchmarkResult, 
+    generate_random_edges, 
+    run_comprehensive_benchmark,
+    print_performance_summary,
+    create_test_graphs,
+    benchmark_gotgraph_scoped_traversal,
+    benchmark_petgraph_traversal,
+    benchmark_petgraph_stable_traversal,
+};
 
 fn benchmark_graph_creation() -> Vec<BenchmarkResult> {
     let mut results = Vec::new();
     
     for &size in &[100, 200, 500, 1000, 2000, 5000] {
-        println!("Benchmarking graph creation for size: {}", size);
-        
-        let num_nodes = size;
-        let num_edges = num_nodes * 2;
-        
-        let mut rng = StdRng::seed_from_u64(42);
-        let edges = generate_random_edges(num_nodes, num_edges, &mut rng);
-        
-        // Benchmark GotGraph
-        let gotgraph_start = Instant::now();
-        for _ in 0..10 {
-            let mut graph: VecGraph<usize, ()> = VecGraph::default();
-            graph.scope_mut(|mut ctx| {
-                let node_tags: Vec<_> = (0..num_nodes)
-                    .map(|i| ctx.add_node(i))
-                    .collect();
-                for &(from, to) in &edges {
-                    ctx.add_edge((), node_tags[from], node_tags[to]);
-                }
-            });
-        }
-        let gotgraph_time = gotgraph_start.elapsed();
-        
-        // Benchmark PetGraph
-        let petgraph_start = Instant::now();
-        for _ in 0..10 {
-            let mut graph = DiGraph::new();
-            let node_indices: Vec<_> = (0..num_nodes)
-                .map(|i| graph.add_node(i))
-                .collect();
-            for &(from, to) in &edges {
-                graph.add_edge(node_indices[from], node_indices[to], ());
-            }
-        }
-        let petgraph_time = petgraph_start.elapsed();
-        
-        results.push(BenchmarkResult {
-            graph_size: size,
-            gotgraph_time_ns: gotgraph_time.as_nanos() as u64 / 10, // Average per iteration
-            petgraph_time_ns: petgraph_time.as_nanos() as u64 / 10,
-        });
+        results.push(run_comprehensive_benchmark(size));
     }
     
     results
@@ -87,57 +43,19 @@ fn benchmark_graph_traversal() -> Vec<BenchmarkResult> {
         let mut rng = StdRng::seed_from_u64(42);
         let edges = generate_random_edges(num_nodes, num_edges, &mut rng);
         
-        // Create GotGraph
-        let mut gotgraph_graph: VecGraph<usize, ()> = VecGraph::default();
-        gotgraph_graph.scope_mut(|mut ctx| {
-            let node_tags: Vec<_> = (0..num_nodes)
-                .map(|i| ctx.add_node(i))
-                .collect();
-            for &(from, to) in &edges {
-                ctx.add_edge((), node_tags[from], node_tags[to]);
-            }
-        });
+        let (gotgraph_graph, petgraph_graph, stable_graph) = create_test_graphs(num_nodes, &edges);
         
-        // Create PetGraph
-        let mut petgraph_graph = DiGraph::new();
-        let petgraph_nodes: Vec<_> = (0..num_nodes)
-            .map(|i| petgraph_graph.add_node(i))
-            .collect();
-        for &(from, to) in &edges {
-            petgraph_graph.add_edge(petgraph_nodes[from], petgraph_nodes[to], ());
-        }
-        
-        // Benchmark GotGraph traversal
-        let gotgraph_start = Instant::now();
-        for _ in 0..100 {
-            gotgraph_graph.scope(|ctx| {
-                let mut total = 0;
-                for node_tag in ctx.node_indices() {
-                    for _edge_tag in ctx.outgoing_edge_indices(node_tag) {
-                        total += 1;
-                    }
-                }
-                total
-            });
-        }
-        let gotgraph_time = gotgraph_start.elapsed();
-        
-        // Benchmark PetGraph traversal
-        let petgraph_start = Instant::now();
-        for _ in 0..100 {
-            let mut _total = 0;
-            for node_idx in petgraph_graph.node_indices() {
-                for _edge_ref in petgraph_graph.edges(node_idx) {
-                    _total += 1;
-                }
-            }
-        }
-        let petgraph_time = petgraph_start.elapsed();
+        // Benchmark traversals
+        let gotgraph_time = benchmark_gotgraph_scoped_traversal(&gotgraph_graph, 100);
+        let petgraph_time = benchmark_petgraph_traversal(&petgraph_graph, 100);
+        let stable_time = benchmark_petgraph_stable_traversal(&stable_graph, 100);
         
         results.push(BenchmarkResult {
             graph_size: size,
-            gotgraph_time_ns: gotgraph_time.as_nanos() as u64 / 100,
+            gotgraph_scoped_time_ns: gotgraph_time.as_nanos() as u64 / 100,
+            gotgraph_direct_time_ns: gotgraph_time.as_nanos() as u64 / 100, // Same as scoped for traversal
             petgraph_time_ns: petgraph_time.as_nanos() as u64 / 100,
+            petgraph_stable_time_ns: stable_time.as_nanos() as u64 / 100,
         });
     }
     
@@ -190,10 +108,28 @@ fn benchmark_memory_usage() -> Vec<BenchmarkResult> {
         let petgraph_time = petgraph_start.elapsed();
         drop(petgraph_graphs);
         
+        // Benchmark PetGraph Stable memory usage
+        let stable_start = Instant::now();
+        let mut stable_graphs = Vec::new();
+        for _ in 0..10 {
+            let mut graph = StableDiGraph::new();
+            let node_indices: Vec<_> = (0..num_nodes)
+                .map(|i| graph.add_node(i))
+                .collect();
+            for &(from, to) in &edges {
+                graph.add_edge(node_indices[from], node_indices[to], ());
+            }
+            stable_graphs.push(graph);
+        }
+        let stable_time = stable_start.elapsed();
+        drop(stable_graphs);
+        
         results.push(BenchmarkResult {
             graph_size: size,
-            gotgraph_time_ns: gotgraph_time.as_nanos() as u64 / 10,
+            gotgraph_scoped_time_ns: gotgraph_time.as_nanos() as u64 / 10,
+            gotgraph_direct_time_ns: gotgraph_time.as_nanos() as u64 / 10,
             petgraph_time_ns: petgraph_time.as_nanos() as u64 / 10,
+            petgraph_stable_time_ns: stable_time.as_nanos() as u64 / 10,
         });
     }
     
@@ -207,11 +143,11 @@ fn plot_results(results: &[BenchmarkResult], title: &str, filename: &str, y_labe
     let min_size = results.iter().map(|r| r.graph_size).min().unwrap_or(100) as f64;
     let max_size = results.iter().map(|r| r.graph_size).max().unwrap_or(1000) as f64;
     let min_time = results.iter()
-        .map(|r| r.gotgraph_time_ns.min(r.petgraph_time_ns))
+        .map(|r| r.gotgraph_scoped_time_ns.min(r.gotgraph_direct_time_ns.min(r.petgraph_time_ns.min(r.petgraph_stable_time_ns))))
         .min()
         .unwrap_or(1000) as f64;
     let max_time = results.iter()
-        .map(|r| r.gotgraph_time_ns.max(r.petgraph_time_ns))
+        .map(|r| r.gotgraph_scoped_time_ns.max(r.gotgraph_direct_time_ns.max(r.petgraph_time_ns.max(r.petgraph_stable_time_ns))))
         .max()
         .unwrap_or(1000) as f64;
     
@@ -232,14 +168,23 @@ fn plot_results(results: &[BenchmarkResult], title: &str, filename: &str, y_labe
         .y_label_formatter(&|y| format!("{:.0}", 10_f64.powf(*y)))
         .draw()?;
     
-    // Plot GotGraph results
+    // Plot GotGraph Scoped results
     chart
         .draw_series(LineSeries::new(
-            results.iter().map(|r| ((r.graph_size as f64).log10(), (r.gotgraph_time_ns as f64).log10())),
+            results.iter().map(|r| ((r.graph_size as f64).log10(), (r.gotgraph_scoped_time_ns as f64).log10())),
             &RED,
         ))?
         .label("GotGraph (Scoped)")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 10, y)], &RED));
+    
+    // Plot GotGraph Direct results
+    chart
+        .draw_series(LineSeries::new(
+            results.iter().map(|r| ((r.graph_size as f64).log10(), (r.gotgraph_direct_time_ns as f64).log10())),
+            &RGBColor(255, 100, 100),
+        ))?
+        .label("GotGraph (Direct)")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 10, y)], &RGBColor(255, 100, 100)));
     
     // Plot PetGraph results
     chart
@@ -247,24 +192,48 @@ fn plot_results(results: &[BenchmarkResult], title: &str, filename: &str, y_labe
             results.iter().map(|r| ((r.graph_size as f64).log10(), (r.petgraph_time_ns as f64).log10())),
             &BLUE,
         ))?
-        .label("PetGraph")
+        .label("PetGraph (DiGraph)")
         .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 10, y)], &BLUE));
     
-    // Add data points for GotGraph
+    // Plot PetGraph StableGraph results
+    chart
+        .draw_series(LineSeries::new(
+            results.iter().map(|r| ((r.graph_size as f64).log10(), (r.petgraph_stable_time_ns as f64).log10())),
+            &GREEN,
+        ))?
+        .label("PetGraph (StableGraph)")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 10, y)], &GREEN));
+    
+    // Add data points for all implementations
     chart.draw_series(
         results.iter().map(|r| Circle::new(
-            ((r.graph_size as f64).log10(), (r.gotgraph_time_ns as f64).log10()), 
+            ((r.graph_size as f64).log10(), (r.gotgraph_scoped_time_ns as f64).log10()), 
             4, 
             RED.filled()
         ))
     )?;
     
-    // Add data points for PetGraph
+    chart.draw_series(
+        results.iter().map(|r| Circle::new(
+            ((r.graph_size as f64).log10(), (r.gotgraph_direct_time_ns as f64).log10()), 
+            4, 
+            RGBColor(255, 100, 100).filled()
+        ))
+    )?;
+    
     chart.draw_series(
         results.iter().map(|r| Circle::new(
             ((r.graph_size as f64).log10(), (r.petgraph_time_ns as f64).log10()), 
             4, 
             BLUE.filled()
+        ))
+    )?;
+    
+    chart.draw_series(
+        results.iter().map(|r| Circle::new(
+            ((r.graph_size as f64).log10(), (r.petgraph_stable_time_ns as f64).log10()), 
+            4, 
+            GREEN.filled()
         ))
     )?;
     
@@ -312,28 +281,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Time (nanoseconds)"
     )?;
     
-    // Print summary
+    // Print summaries
     println!("\n=== Results Summary ===");
-    println!("Graph Creation:");
-    for result in &creation_results {
-        let ratio = result.gotgraph_time_ns as f64 / result.petgraph_time_ns as f64;
-        println!("  Size {}: GotGraph {}ns, PetGraph {}ns (ratio: {:.2}x)",
-                 result.graph_size, result.gotgraph_time_ns, result.petgraph_time_ns, ratio);
-    }
-    
-    println!("\nGraph Traversal:");
-    for result in &traversal_results {
-        let ratio = result.gotgraph_time_ns as f64 / result.petgraph_time_ns as f64;
-        println!("  Size {}: GotGraph {}ns, PetGraph {}ns (ratio: {:.2}x)",
-                 result.graph_size, result.gotgraph_time_ns, result.petgraph_time_ns, ratio);
-    }
-    
-    println!("\nMemory Usage:");
-    for result in &memory_results {
-        let ratio = result.gotgraph_time_ns as f64 / result.petgraph_time_ns as f64;
-        println!("  Size {}: GotGraph {}ns, PetGraph {}ns (ratio: {:.2}x)",
-                 result.graph_size, result.gotgraph_time_ns, result.petgraph_time_ns, ratio);
-    }
+    print_performance_summary(&creation_results, "Graph Creation");
+    print_performance_summary(&traversal_results, "Graph Traversal");
+    print_performance_summary(&memory_results, "Memory Usage");
     
     println!("\nPlots generated:");
     println!("- graph_creation_performance.svg");

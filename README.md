@@ -21,7 +21,7 @@ compile time.
 
 ## Quick Start
 
-### Direct Operations
+### Direct Operations (runtime index check)
 
 You can perform basic graph operations directly without scopes:
 
@@ -56,7 +56,7 @@ let components: Vec<_> = gotgraph::algo::tarjan(&graph).collect();
 println!("Found {} strongly connected components", components.len());
 ```
 
-### Using `scope()` for Safe Operations
+### Using `scope()` (compile-time index check)
 
 ```rust
 use gotgraph::prelude::*;
@@ -98,7 +98,14 @@ generated code is as efficient as unsafe alternatives.
 
 ## Performance Comparison
 
-GotGraph provides competitive performance compared to other graph libraries. The following charts show performance comparisons with PetGraph across different graph sizes using log-log scale visualization:
+GotGraph provides competitive performance compared to other graph libraries.
+
+- GotGraph(direct) : use gotgraph with runtime check
+- GotGraph(scoped) : use gotgraph with compile-time check (safe)
+- petgraph(DiGraph) : use unsafe operation of petgraph
+- petgraph(Scoped) : use safe operation of petgraph
+
+
 
 ### Graph Creation Performance
 ![Graph Creation Performance](benchmark/graph_creation_performance.svg)

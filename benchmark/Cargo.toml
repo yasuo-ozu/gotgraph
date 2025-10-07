@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.75"
 publish = false
 
+[lib]
+name = "gotgraph_benchmark"
+path = "lib.rs"
+
 [dependencies]
 gotgraph = { path = ".." }
 petgraph = "0.6"
@@ -20,3 +24,7 @@ harness = false
 [[bin]]
 name = "plot_results"
 path = "plot_results.rs"
+
+[[bin]]
+name = "simple_plot"
+path = "simple_plot.rs"
