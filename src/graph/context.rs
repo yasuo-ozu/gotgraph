@@ -162,6 +162,7 @@ impl_context_map!(ContextEdgeMap, EdgeTag);
 /// });
 /// ```
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[repr(transparent)]
 pub struct NodeTag<'scope, I>(pub(crate) crate::Invariant<'scope>, pub I);
 
 impl<'scope, I> NodeTag<'scope, I> {
@@ -208,6 +209,7 @@ impl<'scope, I> NodeTag<'scope, I> {
 /// - **Graph Safety**: Tags from one graph cannot be used with another graph
 /// - **Lifetime Safety**: Prevents use-after-remove scenarios
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[repr(transparent)]
 pub struct EdgeTag<'scope, I>(pub(crate) crate::Invariant<'scope>, pub I);
 
 impl<'scope, I> EdgeTag<'scope, I> {
@@ -265,6 +267,7 @@ impl<'scope, I> EdgeTag<'scope, I> {
 /// });
 /// ```
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct Context<'scope, G> {
     pub(crate) graph: G,
     pub(crate) _scope: crate::Invariant<'scope>,

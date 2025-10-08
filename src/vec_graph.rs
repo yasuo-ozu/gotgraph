@@ -2,7 +2,7 @@ use crate::graph::{Graph, GraphRemove, GraphRemoveEdge, GraphUpdate};
 use crate::Mapping;
 /// Node index type for `VecGraph`.
 ///
-/// This is a newtype wrapper around `usize` that provides type safety
+/// This is a newtype wrapper around `u32` that provides type safety
 /// by preventing confusion between node and edge indices.
 ///
 /// # Examples
@@ -18,24 +18,32 @@ use crate::Mapping;
 /// });
 /// ```
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct NodeIx(usize);
+pub struct NodeIx(u32);
 
 /// Edge index type for `VecGraph`.
 ///
-/// This is a newtype wrapper around `usize` that provides type safety
+/// This is a newtype wrapper around `u32` that provides type safety
 /// by preventing confusion between node and edge indices.
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct EdgeIx(usize);
+pub struct EdgeIx(u32);
 
 impl NodeIx {
     fn end() -> Self {
-        NodeIx(usize::MAX)
+        NodeIx(u32::MAX)
+    }
+
+    fn is_end(self) -> bool {
+        self.0 as i32 as i64 as u64 == u64::MAX
     }
 }
 
 impl EdgeIx {
     fn end() -> Self {
-        EdgeIx(usize::MAX)
+        EdgeIx(u32::MAX)
+    }
+
+    fn is_end(self) -> bool {
+        self.0 as i32 as i64 as u64 == u64::MAX
     }
 }
 
@@ -122,29 +130,29 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
     type Edge = E;
 
     fn exists_node_index(&self, NodeIx(ix): Self::NodeIx) -> bool {
-        ix < self.nodes.len()
+        (ix as usize) < self.nodes.len()
     }
 
     fn exists_edge_index(&self, EdgeIx(ix): Self::EdgeIx) -> bool {
-        ix < self.edges.len()
+        (ix as usize) < self.edges.len()
     }
 
     unsafe fn node_unchecked(&self, NodeIx(ix): Self::NodeIx) -> &Self::Node {
-        debug_assert!(ix < self.nodes.len());
-        &self.nodes.get_unchecked(ix).data
+        debug_assert!((ix as usize) < self.nodes.len());
+        &self.nodes.get_unchecked(ix as usize).data
     }
 
     unsafe fn edge_unchecked(&self, EdgeIx(ix): Self::EdgeIx) -> &Self::Edge {
-        debug_assert!(ix < self.edges.len());
-        &self.edges.get_unchecked(ix).data
+        debug_assert!((ix as usize) < self.edges.len());
+        &self.edges.get_unchecked(ix as usize).data
     }
 
     fn node_indices(&self) -> impl Iterator<Item = Self::NodeIx> {
-        (0..self.nodes.len()).map(NodeIx)
+        (0..self.nodes.len()).map(|i| NodeIx(i as u32))
     }
 
     fn edge_indices(&self) -> impl Iterator<Item = Self::EdgeIx> {
-        (0..self.edges.len()).map(EdgeIx)
+        (0..self.edges.len()).map(|i| EdgeIx(i as u32))
     }
 
     unsafe fn outgoing_edge_indices_unchecked(
@@ -162,8 +170,8 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
     }
 
     unsafe fn endpoints_unchecked(&self, EdgeIx(edge): Self::EdgeIx) -> [Self::NodeIx; 2] {
-        debug_assert!(edge < self.edges.len());
-        let edge_repr = self.edges.get_unchecked(edge);
+        debug_assert!((edge as usize) < self.edges.len());
+        let edge_repr = self.edges.get_unchecked(edge as usize);
         edge_repr.node
     }
 
@@ -184,13 +192,13 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
     }
 
     unsafe fn node_unchecked_mut(&mut self, NodeIx(ix): Self::NodeIx) -> &mut Self::Node {
-        debug_assert!(ix < self.nodes.len());
-        &mut self.nodes.get_unchecked_mut(ix).data
+        debug_assert!((ix as usize) < self.nodes.len());
+        &mut self.nodes.get_unchecked_mut(ix as usize).data
     }
 
     unsafe fn edge_unchecked_mut(&mut self, EdgeIx(ix): Self::EdgeIx) -> &mut Self::Edge {
-        debug_assert!(ix < self.edges.len());
-        &mut self.edges.get_unchecked_mut(ix).data
+        debug_assert!((ix as usize) < self.edges.len());
+        &mut self.edges.get_unchecked_mut(ix as usize).data
     }
 
     unsafe fn outgoing_edge_pairs_unchecked_mut(
@@ -305,13 +313,13 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             type Output = V;
 
             fn index(&self, NodeIx(ix): NodeIx) -> &Self::Output {
-                &self.data[ix]
+                &self.data[ix as usize]
             }
         }
 
         impl<'graph, V> std::ops::IndexMut<NodeIx> for VecNodeMap<'graph, V> {
             fn index_mut(&mut self, NodeIx(ix): NodeIx) -> &mut Self::Output {
-                &mut self.data[ix]
+                &mut self.data[ix as usize]
             }
         }
 
@@ -347,11 +355,11 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             }
 
             unsafe fn get_unchecked(&self, NodeIx(ix): NodeIx) -> &V {
-                self.data.get_unchecked(ix)
+                self.data.get_unchecked(ix as usize)
             }
 
             unsafe fn get_unchecked_mut(&mut self, NodeIx(ix): NodeIx) -> &mut V {
-                self.data.get_unchecked_mut(ix)
+                self.data.get_unchecked_mut(ix as usize)
             }
         }
 
@@ -360,7 +368,7 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             .nodes
             .iter()
             .enumerate()
-            .map(|(i, node)| f(NodeIx(i), &node.data))
+            .map(|(i, node)| f(NodeIx(i as u32), &node.data))
             .collect();
         VecNodeMap {
             _graph: PhantomData,
@@ -383,13 +391,13 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             type Output = V;
 
             fn index(&self, EdgeIx(ix): EdgeIx) -> &Self::Output {
-                &self.data[ix]
+                &self.data[ix as usize]
             }
         }
 
         impl<'graph, V> std::ops::IndexMut<EdgeIx> for VecEdgeMap<'graph, V> {
             fn index_mut(&mut self, EdgeIx(ix): EdgeIx) -> &mut Self::Output {
-                &mut self.data[ix]
+                &mut self.data[ix as usize]
             }
         }
 
@@ -425,11 +433,11 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             }
 
             unsafe fn get_unchecked(&self, EdgeIx(ix): EdgeIx) -> &V {
-                self.data.get_unchecked(ix)
+                self.data.get_unchecked(ix as usize)
             }
 
             unsafe fn get_unchecked_mut(&mut self, EdgeIx(ix): EdgeIx) -> &mut V {
-                self.data.get_unchecked_mut(ix)
+                self.data.get_unchecked_mut(ix as usize)
             }
         }
 
@@ -438,7 +446,7 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             .edges
             .iter()
             .enumerate()
-            .map(|(i, edge)| f(EdgeIx(i), &edge.data))
+            .map(|(i, edge)| f(EdgeIx(i as u32), &edge.data))
             .collect();
         VecEdgeMap {
             _graph: PhantomData,
@@ -449,8 +457,14 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
 
 impl<N, E> GraphUpdate for VecGraph<N, E> {
     fn add_node(&mut self, node: Self::Node) -> Self::NodeIx {
-        let ix = NodeIx(self.nodes.len());
-        debug_assert!(ix != NodeIx::end());
+        if self.nodes.len() == u32::MAX as usize {
+            panic!(
+                "Cannot add more nodes: maximum capacity ({}) reached",
+                u32::MAX
+            );
+        }
+        let ix = NodeIx(self.nodes.len() as u32);
+        debug_assert!(!ix.is_end());
         self.nodes.push(NodeRepr {
             data: node,
             next: [EdgeIx::end(), EdgeIx::end()],
@@ -478,25 +492,37 @@ impl<N, E> GraphUpdate for VecGraph<N, E> {
         n_from: Self::NodeIx,
         n_to: Self::NodeIx,
     ) -> Self::EdgeIx {
-        let ix = EdgeIx(self.edges.len());
-        debug_assert!(ix != EdgeIx::end());
-        let next = match n_from.0.cmp(&n_to.0) {
+        if self.edges.len() == u32::MAX as usize {
+            panic!(
+                "Cannot add more edges: maximum capacity ({}) reached",
+                u32::MAX
+            );
+        }
+        let ix = EdgeIx(self.edges.len() as u32);
+        debug_assert!(!ix.is_end());
+        let next = match (n_from.0 as usize).cmp(&(n_to.0 as usize)) {
             core::cmp::Ordering::Equal => {
-                debug_assert!(n_from.0 < self.nodes.len());
-                let n = self.nodes.get_unchecked_mut(n_from.0);
+                debug_assert!((n_from.0 as usize) < self.nodes.len());
+                let n = self.nodes.get_unchecked_mut(n_from.0 as usize);
                 core::mem::replace(&mut n.next, [ix, ix])
             }
             o => {
                 let (v_from, v_to) = if o == core::cmp::Ordering::Greater {
-                    debug_assert!(n_from.0 < self.nodes.len());
-                    debug_assert!(n_to.0 < n_from.0);
-                    let (ns1, ns2) = self.nodes.split_at_mut_unchecked(n_from.0);
-                    (ns2.get_unchecked_mut(0), ns1.get_unchecked_mut(n_to.0))
+                    debug_assert!((n_from.0 as usize) < self.nodes.len());
+                    debug_assert!((n_to.0 as usize) < (n_from.0 as usize));
+                    let (ns1, ns2) = self.nodes.split_at_mut_unchecked(n_from.0 as usize);
+                    (
+                        ns2.get_unchecked_mut(0),
+                        ns1.get_unchecked_mut(n_to.0 as usize),
+                    )
                 } else {
-                    debug_assert!(n_to.0 < self.nodes.len());
-                    debug_assert!(n_from.0 < n_to.0);
-                    let (ns1, ns2) = self.nodes.split_at_mut_unchecked(n_to.0);
-                    (ns1.get_unchecked_mut(n_from.0), ns2.get_unchecked_mut(0))
+                    debug_assert!((n_to.0 as usize) < self.nodes.len());
+                    debug_assert!((n_from.0 as usize) < (n_to.0 as usize));
+                    let (ns1, ns2) = self.nodes.split_at_mut_unchecked(n_to.0 as usize);
+                    (
+                        ns1.get_unchecked_mut(n_from.0 as usize),
+                        ns2.get_unchecked_mut(0),
+                    )
                 };
                 [
                     core::mem::replace(&mut v_from.next[0], ix),
@@ -515,21 +541,22 @@ impl<N, E> GraphUpdate for VecGraph<N, E> {
 
 impl<N, E> GraphRemoveEdge for VecGraph<N, E> {
     unsafe fn remove_edge_unchecked(&mut self, EdgeIx(ix): Self::EdgeIx) -> Self::Edge {
+        let ix = ix as usize;
         debug_assert!(ix < self.edges.len());
         let edge_repr = unsafe { self.edges.get_unchecked(ix) };
         let [from_node, to_node] = edge_repr.node;
         let [next_out, next_in] = edge_repr.next;
 
         // Remove from outgoing edge list of from_node
-        debug_assert!(from_node.0 < self.nodes.len());
-        if unsafe { self.nodes.get_unchecked(from_node.0).next[0] } == EdgeIx(ix) {
-            unsafe { self.nodes.get_unchecked_mut(from_node.0).next[0] = next_out };
+        debug_assert!((from_node.0 as usize) < self.nodes.len());
+        if unsafe { self.nodes.get_unchecked(from_node.0 as usize).next[0] } == EdgeIx(ix as u32) {
+            unsafe { self.nodes.get_unchecked_mut(from_node.0 as usize).next[0] = next_out };
         } else {
-            let mut current = unsafe { self.nodes.get_unchecked(from_node.0).next[0] };
-            while current != EdgeIx::end() {
-                debug_assert!(current.0 < self.edges.len());
-                let current_edge = unsafe { self.edges.get_unchecked_mut(current.0) };
-                if current_edge.next[0] == EdgeIx(ix) {
+            let mut current = unsafe { self.nodes.get_unchecked(from_node.0 as usize).next[0] };
+            while !current.is_end() {
+                debug_assert!((current.0 as usize) < self.edges.len());
+                let current_edge = unsafe { self.edges.get_unchecked_mut(current.0 as usize) };
+                if current_edge.next[0] == EdgeIx(ix as u32) {
                     current_edge.next[0] = next_out;
                     break;
                 }
@@ -538,15 +565,15 @@ impl<N, E> GraphRemoveEdge for VecGraph<N, E> {
         }
 
         // Remove from incoming edge list of to_node
-        debug_assert!(to_node.0 < self.nodes.len());
-        if unsafe { self.nodes.get_unchecked(to_node.0).next[1] } == EdgeIx(ix) {
-            unsafe { self.nodes.get_unchecked_mut(to_node.0).next[1] = next_in };
+        debug_assert!((to_node.0 as usize) < self.nodes.len());
+        if unsafe { self.nodes.get_unchecked(to_node.0 as usize).next[1] } == EdgeIx(ix as u32) {
+            unsafe { self.nodes.get_unchecked_mut(to_node.0 as usize).next[1] = next_in };
         } else {
-            let mut current = unsafe { self.nodes.get_unchecked(to_node.0).next[1] };
-            while current != EdgeIx::end() {
-                debug_assert!(current.0 < self.edges.len());
-                let current_edge = unsafe { self.edges.get_unchecked_mut(current.0) };
-                if current_edge.next[1] == EdgeIx(ix) {
+            let mut current = unsafe { self.nodes.get_unchecked(to_node.0 as usize).next[1] };
+            while !current.is_end() {
+                debug_assert!((current.0 as usize) < self.edges.len());
+                let current_edge = unsafe { self.edges.get_unchecked_mut(current.0 as usize) };
+                if current_edge.next[1] == EdgeIx(ix as u32) {
                     current_edge.next[1] = next_in;
                     break;
                 }
@@ -558,13 +585,13 @@ impl<N, E> GraphRemoveEdge for VecGraph<N, E> {
 
         // Update edge indices after swap_remove
         if ix < self.edges.len() {
-            let moved_edge_ix = EdgeIx(self.edges.len());
+            let moved_edge_ix = EdgeIx(self.edges.len() as u32);
 
             // Update in node adjacency lists
             for node in &mut self.nodes {
                 for next_edge in &mut node.next {
                     if *next_edge == moved_edge_ix {
-                        *next_edge = EdgeIx(ix);
+                        *next_edge = EdgeIx(ix as u32);
                     }
                 }
             }
@@ -573,7 +600,7 @@ impl<N, E> GraphRemoveEdge for VecGraph<N, E> {
             for edge in &mut self.edges {
                 for next_edge in &mut edge.next {
                     if *next_edge == moved_edge_ix {
-                        *next_edge = EdgeIx(ix);
+                        *next_edge = EdgeIx(ix as u32);
                     }
                 }
             }
@@ -603,6 +630,7 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
             &mut self.edges,
         );
         for EdgeIx(del_edge) in del_edges {
+            let del_edge = del_edge as usize;
             debug_assert!(del_edge < del_ord_edge.len());
             let flag = unsafe { del_ord_edge.get_unchecked_mut(del_edge) };
             if !flag.0 {
@@ -620,6 +648,7 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
             &mut self.nodes,
         );
         for NodeIx(del_node) in del_nodes {
+            let del_node = del_node as usize;
             debug_assert!(del_node < del_ord_node.len());
             let flag = unsafe { del_ord_node.get_unchecked_mut(del_node) };
             debug_assert!(del_node < nodes.len());
@@ -628,14 +657,18 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
                 cn.extend(core::iter::once(node.data));
                 flag.0 = true;
             }
-            for EdgeIx(edge) in unsafe { impl_get_edges::<false, N, E>(self, NodeIx(del_node)) }
-                .chain(unsafe { impl_get_edges::<true, N, E>(self, NodeIx(del_node)) })
+            for EdgeIx(edge) in
+                unsafe { impl_get_edges::<false, N, E>(self, NodeIx(del_node as u32)) }
+                    .chain(unsafe { impl_get_edges::<true, N, E>(self, NodeIx(del_node as u32)) })
             {
+                let edge = edge as usize;
                 debug_assert!(edge < del_ord_edge.len());
                 let flag = unsafe { del_ord_edge.get_unchecked_mut(edge) };
                 if !flag.0 {
                     debug_assert!(edge < edges.len());
-                    unsafe { edges.get_unchecked(edge).assume_init_read() };
+                    ce.extend(core::iter::once(unsafe {
+                        edges.get_unchecked(edge).assume_init_read().data
+                    }));
                     flag.0 = true;
                 }
             }
@@ -645,17 +678,19 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
         unsafe { self.edges.set_len(alive_edges) };
         for edge in &mut self.edges {
             for edge_ix in &mut edge.next {
-                if *edge_ix != EdgeIx::end() {
-                    debug_assert!(edge_ix.0 < del_ord_edge.len());
-                    *edge_ix = EdgeIx(unsafe { del_ord_edge.get_unchecked(edge_ix.0).1 });
+                if !(*edge_ix).is_end() {
+                    debug_assert!((edge_ix.0 as usize) < del_ord_edge.len());
+                    *edge_ix =
+                        EdgeIx(unsafe { del_ord_edge.get_unchecked(edge_ix.0 as usize).1 as u32 });
                 }
             }
         }
         for node in &mut self.nodes {
             for edge_ix in &mut node.next {
-                if *edge_ix != EdgeIx::end() {
-                    debug_assert!(edge_ix.0 < del_ord_edge.len());
-                    *edge_ix = EdgeIx(unsafe { del_ord_edge.get_unchecked(edge_ix.0).1 });
+                if !(*edge_ix).is_end() {
+                    debug_assert!((edge_ix.0 as usize) < del_ord_edge.len());
+                    *edge_ix =
+                        EdgeIx(unsafe { del_ord_edge.get_unchecked(edge_ix.0 as usize).1 as u32 });
                 }
             }
         }
@@ -664,8 +699,8 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
         unsafe { self.nodes.set_len(alive_nodes) };
         for edge in &mut self.edges {
             edge.node.iter_mut().for_each(|NodeIx(ix)| {
-                debug_assert!(*ix < del_ord_node.len());
-                *ix = unsafe { del_ord_node.get_unchecked(*ix).1 };
+                debug_assert!((*ix as usize) < del_ord_node.len());
+                *ix = unsafe { del_ord_node.get_unchecked(*ix as usize).1 as u32 };
             });
         }
 
@@ -687,15 +722,16 @@ impl<N, E> GraphRemove for VecGraph<N, E> {
 
         // Remove the node
         let NodeIx(ix) = node_ix;
+        let ix = ix as usize;
         let node_data = self.nodes.swap_remove(ix).data;
 
         // Update node indices in edges after swap_remove
         if ix < self.nodes.len() {
-            let moved_node_ix = NodeIx(self.nodes.len());
+            let moved_node_ix = NodeIx(self.nodes.len() as u32);
             for edge in &mut self.edges {
                 for node_ref in &mut edge.node {
                     if *node_ref == moved_node_ix {
-                        *node_ref = NodeIx(ix);
+                        *node_ref = NodeIx(ix as u32);
                     }
                 }
             }
@@ -779,18 +815,16 @@ unsafe fn impl_get_edges<const IS_INCOMING: bool, N, E>(
         type Item = EdgeIx;
 
         fn next(&mut self) -> Option<Self::Item> {
-            if self.1 == EdgeIx::end() {
-                None
-            } else {
-                debug_assert!(self.1 .0 < self.0.edges.len());
-                let next_edge_repr = unsafe { self.0.edges.get_unchecked(self.1 .0) };
+            if let Some(next_edge_repr) = self.0.edges.get(self.1 .0 as usize) {
                 let next = next_edge_repr.next[IS_INCOMING as usize];
                 let next_ix = core::mem::replace(&mut self.1, next);
                 Some(next_ix)
+            } else {
+                None
             }
         }
     }
-    debug_assert!(node < graph.nodes.len());
-    let node_repr = graph.nodes.get_unchecked(node);
+    debug_assert!((node as usize) < graph.nodes.len());
+    let node_repr = graph.nodes.get_unchecked(node as usize);
     Iter::<'_, IS_INCOMING, N, E>(graph, node_repr.next[IS_INCOMING as usize])
 }

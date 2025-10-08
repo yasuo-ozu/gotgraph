@@ -34,13 +34,13 @@ pub fn benchmark_gotgraph_scoped_creation(
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
     for _ in 0..iterations {
-        let mut graph: VecGraph<usize, ()> = VecGraph::default();
+        let mut graph: VecGraph<usize, usize> = VecGraph::default();
         graph.scope_mut(|mut ctx| {
             let node_tags: Vec<_> = (0..num_nodes)
                 .map(|i| ctx.add_node(i))
                 .collect();
-            for &(from, to) in edges {
-                ctx.add_edge((), node_tags[from], node_tags[to]);
+            for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+                ctx.add_edge(edge_idx, node_tags[from], node_tags[to]);
             }
         });
     }
@@ -55,12 +55,12 @@ pub fn benchmark_gotgraph_direct_creation(
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
     for _ in 0..iterations {
-        let mut graph: VecGraph<usize, ()> = VecGraph::default();
+        let mut graph: VecGraph<usize, usize> = VecGraph::default();
         let node_indices: Vec<_> = (0..num_nodes)
             .map(|i| graph.add_node(i))
             .collect();
-        for &(from, to) in edges {
-            graph.add_edge((), node_indices[from], node_indices[to]);
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            graph.add_edge(edge_idx, node_indices[from], node_indices[to]);
         }
     }
     start.elapsed()
@@ -78,8 +78,8 @@ pub fn benchmark_petgraph_creation(
         let node_indices: Vec<_> = (0..num_nodes)
             .map(|i| graph.add_node(i))
             .collect();
-        for &(from, to) in edges {
-            graph.add_edge(node_indices[from], node_indices[to], ());
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            graph.add_edge(node_indices[from], node_indices[to], edge_idx);
         }
     }
     start.elapsed()
@@ -97,8 +97,8 @@ pub fn benchmark_petgraph_stable_creation(
         let node_indices: Vec<_> = (0..num_nodes)
             .map(|i| graph.add_node(i))
             .collect();
-        for &(from, to) in edges {
-            graph.add_edge(node_indices[from], node_indices[to], ());
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            graph.add_edge(node_indices[from], node_indices[to], edge_idx);
         }
     }
     start.elapsed()
@@ -106,72 +106,100 @@ pub fn benchmark_petgraph_stable_creation(
 
 /// Benchmark gotgraph scoped traversal
 pub fn benchmark_gotgraph_scoped_traversal(
-    graph: &VecGraph<usize, ()>,
+    graph: &VecGraph<usize, usize>,
     iterations: usize,
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
     for _ in 0..iterations {
-        graph.scope(|ctx| {
+        let total = graph.scope(|ctx| {
             let mut total = 0;
             for node_tag in ctx.node_indices() {
-                for _edge_tag in ctx.outgoing_edge_indices(node_tag) {
-                    total += 1;
+                let node_value = *ctx.node(node_tag);
+                total += node_value;
+                for edge_tag in ctx.outgoing_edge_indices(node_tag) {
+                    let edge_value = *ctx.edge(edge_tag);
+                    total += edge_value;
                 }
             }
             total
         });
+        global_total = global_total.wrapping_add(total);
     }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
     start.elapsed()
 }
 
 /// Benchmark gotgraph direct traversal
 pub fn benchmark_gotgraph_direct_traversal(
-    graph: &VecGraph<usize, ()>,
+    graph: &VecGraph<usize, usize>,
     iterations: usize,
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
     for _ in 0..iterations {
-        let mut _total = 0;
+        let mut total = 0;
         for node_idx in graph.node_indices() {
-            for _edge_idx in graph.outgoing_edge_indices(node_idx) {
-                _total += 1;
+            let node_value = *graph.node(node_idx);
+            total += node_value;
+            for edge_idx in graph.outgoing_edge_indices(node_idx) {
+                let edge_value = *graph.edge(edge_idx);
+                total += edge_value;
             }
         }
+        global_total = global_total.wrapping_add(total);
     }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
     start.elapsed()
 }
 
 /// Benchmark petgraph DiGraph traversal
 pub fn benchmark_petgraph_traversal(
-    graph: &DiGraph<usize, ()>,
+    graph: &DiGraph<usize, usize>,
     iterations: usize,
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
     for _ in 0..iterations {
-        let mut _total = 0;
+        let mut total = 0;
         for node_idx in graph.node_indices() {
-            for _edge_ref in graph.edges(node_idx) {
-                _total += 1;
+            let node_value = *graph.node_weight(node_idx).unwrap();
+            total += node_value;
+            for edge_ref in graph.edges(node_idx) {
+                let edge_value = *edge_ref.weight();
+                total += edge_value;
             }
         }
+        global_total = global_total.wrapping_add(total);
     }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
     start.elapsed()
 }
 
 /// Benchmark petgraph StableDiGraph traversal
 pub fn benchmark_petgraph_stable_traversal(
-    graph: &StableDiGraph<usize, ()>,
+    graph: &StableDiGraph<usize, usize>,
     iterations: usize,
 ) -> std::time::Duration {
     let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
     for _ in 0..iterations {
-        let mut _total = 0;
+        let mut total = 0;
         for node_idx in graph.node_indices() {
-            for _edge_ref in graph.edges(node_idx) {
-                _total += 1;
+            let node_value = *graph.node_weight(node_idx).unwrap();
+            total += node_value;
+            for edge_ref in graph.edges(node_idx) {
+                let edge_value = *edge_ref.weight();
+                total += edge_value;
             }
         }
+        global_total = global_total.wrapping_add(total);
     }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
     start.elapsed()
 }
 
@@ -179,15 +207,15 @@ pub fn benchmark_petgraph_stable_traversal(
 pub fn create_test_graphs(
     num_nodes: usize,
     edges: &[(usize, usize)],
-) -> (VecGraph<usize, ()>, DiGraph<usize, ()>, StableDiGraph<usize, ()>) {
+) -> (VecGraph<usize, usize>, DiGraph<usize, usize>, StableDiGraph<usize, usize>) {
     // Create gotgraph
-    let mut gotgraph_graph: VecGraph<usize, ()> = VecGraph::default();
+    let mut gotgraph_graph: VecGraph<usize, usize> = VecGraph::default();
     gotgraph_graph.scope_mut(|mut ctx| {
         let node_tags: Vec<_> = (0..num_nodes)
             .map(|i| ctx.add_node(i))
             .collect();
-        for &(from, to) in edges {
-            ctx.add_edge((), node_tags[from], node_tags[to]);
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            ctx.add_edge(edge_idx, node_tags[from], node_tags[to]);
         }
     });
 
@@ -196,8 +224,8 @@ pub fn create_test_graphs(
     let petgraph_nodes: Vec<_> = (0..num_nodes)
         .map(|i| petgraph_graph.add_node(i))
         .collect();
-    for &(from, to) in edges {
-        petgraph_graph.add_edge(petgraph_nodes[from], petgraph_nodes[to], ());
+    for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+        petgraph_graph.add_edge(petgraph_nodes[from], petgraph_nodes[to], edge_idx);
     }
 
     // Create petgraph StableDiGraph
@@ -205,15 +233,52 @@ pub fn create_test_graphs(
     let stable_nodes: Vec<_> = (0..num_nodes)
         .map(|i| stable_graph.add_node(i))
         .collect();
-    for &(from, to) in edges {
-        stable_graph.add_edge(stable_nodes[from], stable_nodes[to], ());
+    for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+        stable_graph.add_edge(stable_nodes[from], stable_nodes[to], edge_idx);
+    }
+
+    (gotgraph_graph, petgraph_graph, stable_graph)
+}
+
+/// Create test graphs for benchmarking with node indices as values
+pub fn create_test_graphs_with_indices(
+    num_nodes: usize,
+    edges: &[(usize, usize)],
+) -> (VecGraph<usize, usize>, DiGraph<usize, usize>, StableDiGraph<usize, usize>) {
+    // Create gotgraph
+    let mut gotgraph_graph: VecGraph<usize, usize> = VecGraph::default();
+    gotgraph_graph.scope_mut(|mut ctx| {
+        let node_tags: Vec<_> = (0..num_nodes)
+            .map(|i| ctx.add_node(i))
+            .collect();
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            ctx.add_edge(edge_idx, node_tags[from], node_tags[to]);
+        }
+    });
+
+    // Create petgraph DiGraph
+    let mut petgraph_graph = DiGraph::new();
+    let petgraph_nodes: Vec<_> = (0..num_nodes)
+        .map(|i| petgraph_graph.add_node(i))
+        .collect();
+    for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+        petgraph_graph.add_edge(petgraph_nodes[from], petgraph_nodes[to], edge_idx);
+    }
+
+    // Create petgraph StableDiGraph
+    let mut stable_graph = StableDiGraph::new();
+    let stable_nodes: Vec<_> = (0..num_nodes)
+        .map(|i| stable_graph.add_node(i))
+        .collect();
+    for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+        stable_graph.add_edge(stable_nodes[from], stable_nodes[to], edge_idx);
     }
 
     (gotgraph_graph, petgraph_graph, stable_graph)
 }
 
 /// Run comprehensive benchmark for a given graph size
-pub fn run_comprehensive_benchmark(size: usize) -> BenchmarkResult {
+pub fn run_comprehensive_benchmark(size: usize, iterations: usize) -> BenchmarkResult {
     let num_nodes = size;
     let num_edges = num_nodes * 2;
     
@@ -223,17 +288,17 @@ pub fn run_comprehensive_benchmark(size: usize) -> BenchmarkResult {
     println!("Benchmarking size: {}", size);
     
     // Benchmark creation
-    let gotgraph_scoped_time = benchmark_gotgraph_scoped_creation(num_nodes, &edges, 10);
-    let gotgraph_direct_time = benchmark_gotgraph_direct_creation(num_nodes, &edges, 10);
-    let petgraph_time = benchmark_petgraph_creation(num_nodes, &edges, 10);
-    let petgraph_stable_time = benchmark_petgraph_stable_creation(num_nodes, &edges, 10);
+    let gotgraph_scoped_time = benchmark_gotgraph_scoped_creation(num_nodes, &edges, iterations);
+    let gotgraph_direct_time = benchmark_gotgraph_direct_creation(num_nodes, &edges, iterations);
+    let petgraph_time = benchmark_petgraph_creation(num_nodes, &edges, iterations);
+    let petgraph_stable_time = benchmark_petgraph_stable_creation(num_nodes, &edges, iterations);
     
     BenchmarkResult {
         graph_size: size,
-        gotgraph_scoped_time_ns: gotgraph_scoped_time.as_nanos() as u64 / 10,
-        gotgraph_direct_time_ns: gotgraph_direct_time.as_nanos() as u64 / 10,
-        petgraph_time_ns: petgraph_time.as_nanos() as u64 / 10,
-        petgraph_stable_time_ns: petgraph_stable_time.as_nanos() as u64 / 10,
+        gotgraph_scoped_time_ns: gotgraph_scoped_time.as_nanos() as u64 / iterations as u64,
+        gotgraph_direct_time_ns: gotgraph_direct_time.as_nanos() as u64 / iterations as u64,
+        petgraph_time_ns: petgraph_time.as_nanos() as u64 / iterations as u64,
+        petgraph_stable_time_ns: petgraph_stable_time.as_nanos() as u64 / iterations as u64,
     }
 }
 
