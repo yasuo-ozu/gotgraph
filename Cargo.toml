@@ -17,3 +17,7 @@ readme = "README.md"
 
 [dev-dependencies]
 trybuild = "1.0"
+
+[workspace]
+members = [".", "benchmark"]
+resolver = "2"

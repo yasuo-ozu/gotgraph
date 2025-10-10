@@ -15,6 +15,8 @@ petgraph = "0.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
 plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
+pathfinding = "4.0"
+graphlib = "0.6"
 
 [[bench]]
 name = "graph_benchmark"
@@ -28,3 +30,11 @@ path = "plot_results.rs"
 [[bin]]
 name = "simple_plot"
 path = "simple_plot.rs"
+
+[[bin]]
+name = "assembly_benchmark"
+path = "assembly_benchmark.rs"
+
+[[bin]]
+name = "core_ops_analysis"
+path = "core_ops_analysis.rs"

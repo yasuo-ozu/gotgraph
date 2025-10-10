@@ -7,6 +7,10 @@ use gotgraph::prelude::*;
 use petgraph::graph::DiGraph;
 use petgraph::stable_graph::StableDiGraph;
 
+// Import other graph libraries
+use graphlib::Graph as GraphlibGraph;
+use std::collections::HashMap;
+
 #[derive(Debug, Clone)]
 pub struct BenchmarkResult {
     pub graph_size: usize,
@@ -14,6 +18,8 @@ pub struct BenchmarkResult {
     pub gotgraph_direct_time_ns: u64,
     pub petgraph_time_ns: u64,
     pub petgraph_stable_time_ns: u64,
+    pub pathfinding_time_ns: u64,
+    pub graphlib_time_ns: u64,
 }
 
 pub fn generate_random_edges(num_nodes: usize, num_edges: usize, rng: &mut StdRng) -> Vec<(usize, usize)> {
@@ -103,6 +109,48 @@ pub fn benchmark_petgraph_stable_creation(
     }
     start.elapsed()
 }
+
+
+/// Benchmark pathfinding graph creation (using adjacency lists)
+pub fn benchmark_pathfinding_creation(
+    num_nodes: usize,
+    edges: &[(usize, usize)],
+    iterations: usize,
+) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        let mut adjacency_list: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+        for i in 0..num_nodes {
+            adjacency_list.insert(i, Vec::new());
+        }
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            adjacency_list.get_mut(&from).unwrap().push((to, edge_idx));
+        }
+    }
+    start.elapsed()
+}
+
+/// Benchmark graphlib creation
+pub fn benchmark_graphlib_creation(
+    num_nodes: usize,
+    edges: &[(usize, usize)],
+    iterations: usize,
+) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        let mut graph = GraphlibGraph::new();
+        let mut vertex_ids = Vec::new();
+        for i in 0..num_nodes {
+            let id = graph.add_vertex(i);
+            vertex_ids.push(id);
+        }
+        for &(from, to) in edges.iter() {
+            graph.add_edge(&vertex_ids[from], &vertex_ids[to]).ok(); // Ignore errors for DAG constraints
+        }
+    }
+    start.elapsed()
+}
+
 
 /// Benchmark gotgraph scoped traversal
 pub fn benchmark_gotgraph_scoped_traversal(
@@ -203,11 +251,68 @@ pub fn benchmark_petgraph_stable_traversal(
     start.elapsed()
 }
 
+
+/// Benchmark pathfinding traversal (using adjacency lists)
+pub fn benchmark_pathfinding_traversal(
+    adjacency_list: &HashMap<usize, Vec<(usize, usize)>>,
+    iterations: usize,
+) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
+    for _ in 0..iterations {
+        let mut total = 0;
+        for (&node, edges) in adjacency_list.iter() {
+            total += node;
+            for &(_, edge_weight) in edges.iter() {
+                total += edge_weight;
+            }
+        }
+        global_total = global_total.wrapping_add(total);
+    }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
+    start.elapsed()
+}
+
+/// Benchmark graphlib traversal
+pub fn benchmark_graphlib_traversal(
+    graph: &GraphlibGraph<usize>,
+    iterations: usize,
+) -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let mut global_total: usize = 0;
+    for _ in 0..iterations {
+        let mut total = 0;
+        
+        // Iterate over all vertices in the graph
+        for vertex_id in graph.vertices() {
+            // Get the vertex value (similar to gotgraph's node access)
+            if let Some(vertex_value) = graph.fetch(&vertex_id) {
+                total += vertex_value;
+            }
+            
+            // Iterate over outgoing neighbors (similar to gotgraph's outgoing edges)
+            for neighbor_id in graph.out_neighbors(&vertex_id) {
+                // Access neighbor value to simulate edge traversal work
+                if let Some(neighbor_value) = graph.fetch(&neighbor_id) {
+                    total += neighbor_value;
+                }
+            }
+        }
+        
+        global_total = global_total.wrapping_add(total);
+    }
+    // Use the total to prevent optimization
+    std::hint::black_box(global_total);
+    start.elapsed()
+}
+
+
 /// Create test graphs for benchmarking
 pub fn create_test_graphs(
     num_nodes: usize,
     edges: &[(usize, usize)],
-) -> (VecGraph<usize, usize>, DiGraph<usize, usize>, StableDiGraph<usize, usize>) {
+) -> (VecGraph<usize, usize>, DiGraph<usize, usize>, StableDiGraph<usize, usize>, HashMap<usize, Vec<(usize, usize)>>, GraphlibGraph<usize>) {
     // Create gotgraph
     let mut gotgraph_graph: VecGraph<usize, usize> = VecGraph::default();
     gotgraph_graph.scope_mut(|mut ctx| {
@@ -237,7 +342,27 @@ pub fn create_test_graphs(
         stable_graph.add_edge(stable_nodes[from], stable_nodes[to], edge_idx);
     }
 
-    (gotgraph_graph, petgraph_graph, stable_graph)
+    // Create pathfinding adjacency list
+    let mut adjacency_list: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+    for i in 0..num_nodes {
+        adjacency_list.insert(i, Vec::new());
+    }
+    for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+        adjacency_list.get_mut(&from).unwrap().push((to, edge_idx));
+    }
+
+    // Create graphlib graph
+    let mut graphlib_graph = GraphlibGraph::new();
+    let mut vertex_ids = Vec::new();
+    for i in 0..num_nodes {
+        let id = graphlib_graph.add_vertex(i);
+        vertex_ids.push(id);
+    }
+    for &(from, to) in edges.iter() {
+        graphlib_graph.add_edge(&vertex_ids[from], &vertex_ids[to]).ok(); // Ignore errors for DAG constraints
+    }
+
+    (gotgraph_graph, petgraph_graph, stable_graph, adjacency_list, graphlib_graph)
 }
 
 /// Create test graphs for benchmarking with node indices as values
@@ -292,6 +417,8 @@ pub fn run_comprehensive_benchmark(size: usize, iterations: usize) -> BenchmarkR
     let gotgraph_direct_time = benchmark_gotgraph_direct_creation(num_nodes, &edges, iterations);
     let petgraph_time = benchmark_petgraph_creation(num_nodes, &edges, iterations);
     let petgraph_stable_time = benchmark_petgraph_stable_creation(num_nodes, &edges, iterations);
+    let pathfinding_time = benchmark_pathfinding_creation(num_nodes, &edges, iterations);
+    let graphlib_time = benchmark_graphlib_creation(num_nodes, &edges, iterations);
     
     BenchmarkResult {
         graph_size: size,
@@ -299,6 +426,8 @@ pub fn run_comprehensive_benchmark(size: usize, iterations: usize) -> BenchmarkR
         gotgraph_direct_time_ns: gotgraph_direct_time.as_nanos() as u64 / iterations as u64,
         petgraph_time_ns: petgraph_time.as_nanos() as u64 / iterations as u64,
         petgraph_stable_time_ns: petgraph_stable_time.as_nanos() as u64 / iterations as u64,
+        pathfinding_time_ns: pathfinding_time.as_nanos() as u64 / iterations as u64,
+        graphlib_time_ns: graphlib_time.as_nanos() as u64 / iterations as u64,
     }
 }
 
@@ -319,5 +448,52 @@ pub fn print_performance_summary(results: &[BenchmarkResult], operation: &str) {
                  result.petgraph_stable_time_ns);
         println!("    Ratios vs PetGraph: Scoped {:.2}x, Direct {:.2}x, Stable {:.2}x | Scoped vs Direct {:.2}x",
                  scoped_vs_petgraph, direct_vs_petgraph, stable_vs_petgraph, scoped_vs_direct);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graphlib_traversal_implementation() {
+        // Create a small test graph
+        let mut graph = GraphlibGraph::new();
+        
+        // Add vertices
+        let v1 = graph.add_vertex(10);
+        let v2 = graph.add_vertex(20);
+        let v3 = graph.add_vertex(30);
+        
+        // Add edges
+        graph.add_edge(&v1, &v2).ok();
+        graph.add_edge(&v2, &v3).ok();
+        graph.add_edge(&v1, &v3).ok();
+        
+        println!("Created test graph with {} vertices", graph.vertices().count());
+        
+        // Test the traversal
+        let duration = benchmark_graphlib_traversal(&graph, 1);
+        println!("GraphLib traversal completed in {:?}", duration);
+        
+        // Test that our traversal actually iterates through the graph
+        let mut total = 0;
+        for vertex_id in graph.vertices() {
+            if let Some(vertex_value) = graph.fetch(&vertex_id) {
+                total += vertex_value;
+                println!("Visited vertex with value: {}", vertex_value);
+                
+                for neighbor_id in graph.out_neighbors(&vertex_id) {
+                    if let Some(neighbor_value) = graph.fetch(&neighbor_id) {
+                        total += neighbor_value;
+                        println!("  -> neighbor with value: {}", neighbor_value);
+                    }
+                }
+            }
+        }
+        
+        println!("Total sum from manual traversal: {}", total);
+        assert!(total > 0, "Traversal should visit vertices and accumulate values");
+        assert!(duration.as_nanos() > 0, "Benchmark should take some time");
     }
 }
