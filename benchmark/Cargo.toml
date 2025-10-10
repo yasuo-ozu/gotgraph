@@ -1,6 +1,6 @@
 [package]
 name = "gotgraph-benchmark"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 publish = false
@@ -14,7 +14,10 @@ gotgraph = { path = ".." }
 petgraph = "0.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
-plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
+plotters = { version = "0.3", default-features = false, features = [
+  "svg_backend",
+  "line_series",
+] }
 pathfinding = "4.0"
 graphlib = "0.6"
 
