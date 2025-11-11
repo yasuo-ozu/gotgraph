@@ -573,3 +573,107 @@ fn test_edge_graph_comprehensive() {
         assert_eq!(connecting, outgoing + incoming);
     }
 }
+
+#[test]
+fn test_reverse_graph() {
+    let mut graph = create_test_graph();
+    
+    // Store original edge endpoints for comparison
+    let original_endpoints: Vec<_> = graph.edge_indices()
+        .map(|edge_ix| (edge_ix, graph.endpoints(edge_ix)))
+        .collect();
+    
+    // Reverse the graph
+    graph.reverse();
+    
+    // Verify that all edges have been reversed
+    for (edge_ix, [original_from, original_to]) in original_endpoints {
+        let [new_from, new_to] = graph.endpoints(edge_ix);
+        assert_eq!(new_from, original_to, "Edge {:?} from endpoint not reversed correctly", edge_ix);
+        assert_eq!(new_to, original_from, "Edge {:?} to endpoint not reversed correctly", edge_ix);
+    }
+    
+    // Verify that node and edge data remain unchanged
+    graph.scope(|ctx| {
+        let node_values: Vec<_> = ctx.nodes().cloned().collect();
+        assert!(node_values.contains(&0));
+        assert!(node_values.contains(&1));
+        assert!(node_values.contains(&2));
+        assert!(node_values.contains(&3));
+        
+        let edge_values: Vec<_> = ctx.edges().cloned().collect();
+        assert!(edge_values.contains(&"0->1"));
+        assert!(edge_values.contains(&"1->2"));
+        assert!(edge_values.contains(&"2->3"));
+        assert!(edge_values.contains(&"0->2"));
+        assert!(edge_values.contains(&"1->3"));
+    });
+}
+
+#[test]
+fn test_reverse_empty_graph() {
+    let mut graph: VecGraph<i32, &str> = VecGraph::default();
+    
+    // Reversing empty graph should not panic
+    graph.reverse();
+    
+    assert!(graph.is_empty());
+    assert_eq!(graph.len_nodes(), 0);
+    assert_eq!(graph.len_edges(), 0);
+}
+
+#[test]
+fn test_reverse_single_node() {
+    let mut graph: VecGraph<i32, &str> = VecGraph::default();
+    
+    graph.scope_mut(|mut ctx| {
+        ctx.add_node(42);
+    });
+    
+    graph.reverse();
+    
+    // Verify single node graph remains intact
+    assert_eq!(graph.len_nodes(), 1);
+    assert_eq!(graph.len_edges(), 0);
+    
+    graph.scope(|ctx| {
+        let node_values: Vec<_> = ctx.nodes().cloned().collect();
+        assert_eq!(node_values, vec![42]);
+    });
+}
+
+#[test]
+fn test_reverse_self_loop() {
+    let mut graph: VecGraph<i32, &str> = VecGraph::default();
+    
+    graph.scope_mut(|mut ctx| {
+        let node = ctx.add_node(1);
+        ctx.add_edge("self", node, node);
+    });
+    
+    graph.reverse();
+    
+    // Self-loop should remain unchanged after reverse
+    let [from, to] = graph.endpoints(graph.edge_indices().next().unwrap());
+    assert_eq!(from, to);
+}
+
+#[test]
+fn test_double_reverse() {
+    let mut graph = create_test_graph();
+    
+    // Store original state
+    let original_endpoints: Vec<_> = graph.edge_indices()
+        .map(|edge_ix| (edge_ix, graph.endpoints(edge_ix)))
+        .collect();
+    
+    // Reverse twice should restore original state
+    graph.reverse();
+    graph.reverse();
+    
+    // Verify endpoints are back to original
+    for (edge_ix, original) in original_endpoints {
+        let current = graph.endpoints(edge_ix);
+        assert_eq!(current, original, "Double reverse did not restore original state for edge {:?}", edge_ix);
+    }
+}

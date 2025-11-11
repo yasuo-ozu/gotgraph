@@ -453,6 +453,14 @@ impl<N, E> crate::graph::Graph for VecGraph<N, E> {
             data,
         }
     }
+
+    unsafe fn reverse_edge_unchecked(&mut self, EdgeIx(edge_ix): Self::EdgeIx, new_from: Self::NodeIx, new_to: Self::NodeIx)
+    where
+        Self: Sized,
+    {
+        debug_assert!((edge_ix as usize) < self.edges.len());
+        self.edges.get_unchecked_mut(edge_ix as usize).node = [new_from, new_to];
+    }
 }
 
 impl<N, E> GraphUpdate for VecGraph<N, E> {

@@ -416,6 +416,13 @@ impl<'scope, G: Graph> Graph for Context<'scope, G> {
                 .init_edge_map(move |ix, edge| f(EdgeTag(PhantomData, ix), edge)),
         }
     }
+
+    unsafe fn reverse_edge_unchecked(&mut self, EdgeTag(_, edge_ix): Self::EdgeIx, NodeTag(_, new_from): Self::NodeIx, NodeTag(_, new_to): Self::NodeIx)
+    where
+        Self: Sized,
+    {
+        self.graph.reverse_edge_unchecked(edge_ix, new_from, new_to)
+    }
 }
 
 impl<'scope, G: GraphUpdate> GraphUpdate for Context<'scope, G> {

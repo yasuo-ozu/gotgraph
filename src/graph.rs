@@ -638,6 +638,23 @@ pub trait Graph {
         })
     }
 
+    fn reverse(&mut self)
+    where
+        Self: Sized,
+    {
+        let edges: Vec<_> = self.edge_indices().collect();
+        for edge_ix in edges {
+            let [from, to] = unsafe { self.endpoints_unchecked(edge_ix) };
+            unsafe {
+                self.reverse_edge_unchecked(edge_ix, to, from);
+            }
+        }
+    }
+
+    unsafe fn reverse_edge_unchecked(&mut self, edge_ix: Self::EdgeIx, new_from: Self::NodeIx, new_to: Self::NodeIx)
+    where
+        Self: Sized;
+
     fn init_edge_map<V>(
         &self,
         mut f: impl FnMut(Self::EdgeIx, &Self::Edge) -> V,
@@ -898,6 +915,13 @@ impl<T: Graph> Graph for &T {
     {
         std::iter::empty()
     }
+
+    unsafe fn reverse_edge_unchecked(&mut self, _edge_ix: Self::EdgeIx, _new_from: Self::NodeIx, _new_to: Self::NodeIx)
+    where
+        Self: Sized,
+    {
+        panic!("&T does not support mutable access")
+    }
 }
 
 impl<T: Graph> Graph for &mut T {
@@ -1018,5 +1042,12 @@ impl<T: Graph> Graph for &mut T {
         Self: Sized,
     {
         (**self).connecting_edge_pairs_unchecked_mut(tag)
+    }
+
+    unsafe fn reverse_edge_unchecked(&mut self, edge_ix: Self::EdgeIx, new_from: Self::NodeIx, new_to: Self::NodeIx)
+    where
+        Self: Sized,
+    {
+        (**self).reverse_edge_unchecked(edge_ix, new_from, new_to)
     }
 }
